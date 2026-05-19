@@ -323,7 +323,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v6.7 · 19 mag 2025";
+const VERSION="v6.8 · 19 mag 2025";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",maximumFractionDigits:0}).format(n||0);
@@ -1565,6 +1565,35 @@ Tutte le transazioni verranno spostate in "Altro".`))return;
   );
 }
 
+
+// ── MODAL DI CONFERMA ─────────────────────────────────────────────────────────
+function ConfirmModal({title,message,onConfirm,onCancel,danger=false}){
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}
+      onClick={onCancel}>
+      <div style={{background:"#fff",borderRadius:16,padding:36,maxWidth:540,width:"100%",
+        boxShadow:"0 25px 60px rgba(0,0,0,0.35)"}}
+        onClick={e=>e.stopPropagation()}>
+        <div style={{fontSize:22,fontWeight:800,color:danger?"#dc2626":"#1e293b",marginBottom:16}}>{title}</div>
+        <div style={{fontSize:14,color:"#475569",lineHeight:1.8,whiteSpace:"pre-line",marginBottom:32}}>{message}</div>
+        <div style={{display:"flex",gap:12,justifyContent:"flex-end"}}>
+          <button onClick={onCancel}
+            style={{padding:"10px 24px",border:"1px solid #e2e8f0",borderRadius:8,background:"#f8fafc",
+              color:"#64748b",fontWeight:600,fontSize:14,cursor:"pointer"}}>
+            ✕ Annulla
+          </button>
+          <button onClick={onConfirm}
+            style={{padding:"10px 28px",border:"none",borderRadius:8,
+              background:danger?"#dc2626":"#22c55e",
+              color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer"}}>
+            ✅ Procedi
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── SETUP ─────────────────────────────────────────────────────────────────────
 function Setup({onSave}){
   const [url,setUrl]=useState(localStorage.getItem("gsUrl")||"");
@@ -1622,7 +1651,9 @@ function App(){
   const [selMonth,setSelMonth]=useState(null);
   const [setup,setSetup]=useState(false);
   const [ready,setReady]=useState(false);
-  const [rulesRev,setRulesRev]=useState(0); // bumped when rules change to trigger re-parse
+  const [rulesRev,setRulesRev]=useState(0);
+  const [modal,setModal]=useState(null); // {title,message,danger,onConfirm,pendingFiles,handler}
+  const pendingFilesRef=React.useRef(null); // bumped when rules change to trigger re-parse
 
   useEffect(()=>{
     const saved=localStorage.getItem("gsUrl");
@@ -1654,7 +1685,7 @@ function App(){
 
   // Modalità 1: Aggiungi — salta i duplicati (comportamento normale)
   async function handleUpload(e){
-    const files=Array.from(e.target.files);
+    const files=Array.from(e.target?.files||e.files||[]);
     if(!files.length)return;
     setMsg(`⏳ Leggo ${files.length} file...`);
     const newRows=await parseFiles(files);
@@ -1671,12 +1702,12 @@ function App(){
       await gsWrite(url,toAdd,(done,tot,rows)=>setMsg(`☁️ Google Sheets: ${done}/${tot} blocchi · ${Math.round(done/tot*100)}%`));
       setMsg(`✅ ${toAdd.length} aggiunte · ${merged.length} totali.`);
     }catch{setMsg("⚠️ Visibili ma non sincronizzati con Sheets.");}
-    setSyncing(false);setTimeout(()=>setMsg(""),6000);e.target.value="";
+    setSyncing(false);setTimeout(()=>setMsg(""),6000);try{document.getElementById("inp-full").value="";}catch{}
   }
 
   // Modalità 2: Sostituisci periodo — rimuove i dati nel range del file e reinserisce
   async function handleReplaceByPeriod(e){
-    const files=Array.from(e.target.files);
+    const files=Array.from(e.target?.files||e.files||[]);
     if(!files.length)return;
     setMsg(`⏳ Analizzo ${files.length} file...`);
     const newRows=await parseFiles(files);
@@ -1697,14 +1728,13 @@ function App(){
       await gsWrite(url,merged,(done,tot)=>setMsg(`☁️ Google Sheets: ${done}/${tot} blocchi · ${Math.round(done/tot*100)}%`));
       setMsg(`✅ Periodo sostituito · ${merged.length} transazioni totali.`);
     }catch{setMsg("⚠️ Aggiornato in locale. Sheets non raggiungibile.");}
-    setSyncing(false);setTimeout(()=>setMsg(""),6000);e.target.value="";
+    setSyncing(false);setTimeout(()=>setMsg(""),6000);try{document.getElementById("inp-full").value="";}catch{}
   }
 
   // Modalità 3: Reimporta tutto — cancella tutto e ricarica da zero
   async function handleFullReimport(e){
-    const files=Array.from(e.target.files);
+    const files=Array.from(e.target?.files||e.files||[]);
     if(!files.length)return;
-    if(!window.confirm(`⚠️ ATTENZIONE — Operazione irreversibile.\n\nL'intero database verrà azzerato e sostituito con i ${files.length} file che hai selezionato.\nTutte le ${txs.length} transazioni attuali andranno perse.\n\nLe tue regole di categorizzazione e le categorie personalizzate rimarranno intatte.\n\nContinuare?`)){e.target.value="";return;}
     setSyncing(true);
     setMsg("🗑️ Cancello dati esistenti...");
     lsSave([]);setTxs([]);
@@ -1721,7 +1751,7 @@ function App(){
       await gsWrite(url,sorted,(done,tot)=>setMsg(`☁️ Sheets: ${done}/${tot} blocchi (${Math.round(done/tot*100)}%) — non chiudere la pagina`));
       setMsg(`✅ Reimport completo · ${sorted.length} transazioni · Sheets aggiornato.`);
     }catch{setMsg(`✅ ${sorted.length} transazioni importate (solo locale — Sheets non aggiornato).`);}
-    setSyncing(false);setTimeout(()=>setMsg(""),6000);e.target.value="";
+    setSyncing(false);setTimeout(()=>setMsg(""),6000);try{document.getElementById("inp-full").value="";}catch{}
   }
 
   const years=useMemo(()=>[...new Set(txs.map(t=>t.year))].sort(),[txs]);
@@ -1733,6 +1763,19 @@ function App(){
 
   if(!ready)return<div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",color:C.muted}}>Avvio...</div>;
   if(setup)return<Setup onSave={handleSaveUrl}/>;
+  // Modal conferma import
+  if(modal)return(
+    <>
+      {/* Render app underneath */}
+      <ConfirmModal
+        title={modal.title}
+        message={modal.message}
+        danger={modal.danger}
+        onConfirm={()=>{setModal(null);modal.handler();}}
+        onCancel={()=>{setModal(null);try{document.getElementById("inp-add").value="";document.getElementById("inp-rep").value="";document.getElementById("inp-full").value="";}catch{}}}
+      />
+    </>
+  );
 
   const TABS=[["panoramica","📊 Panoramica"],["mensile","📅 Mensile"],["categorie","🏷 Categorie"],["fornitori","🏪 Fornitori"],["investimenti","📈 Investimenti"],["regole","🔧 Regole"]];
 
@@ -1753,23 +1796,31 @@ function App(){
               <div style={{color:C.muted,fontSize:10}}>{txs.length.toLocaleString()} transazioni · <strong style={{color:"#60a5fa"}}>{periodLabel}</strong><span style={{marginLeft:8,background:"#f0fdf4",color:"#16a34a",borderRadius:4,padding:"1px 6px",fontSize:9,fontWeight:700,letterSpacing:0.5}}>{VERSION}</span></div>
             </div>
             <label title="Aggiungi nuove transazioni (salta duplicati)" style={{background:"#60a5fa",color:"#fff",borderRadius:8,padding:"7px 12px",cursor:syncing?"not-allowed":"pointer",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:4,opacity:syncing?0.6:1}}>
-              📂 Aggiungi<input type="file" accept=".csv" multiple disabled={syncing}
-                onChange={e=>{
-                  if(!e.target.files.length)return;
-                  alert("Usa questa funzione per aggiungere nuovi record da una nuova estrazione della tua banca.\n\nI dati verranno accodati al database esistente.\n\nAttenzione: se carichi un file già importato in precedenza, le transazioni risulteranno duplicate.");
-                  handleUpload(e);
-                }} style={{display:"none"}}/>
+              📂 Aggiungi<input id="inp-add" type="file" accept=".csv" multiple style={{display:"none"}} disabled={syncing}
+                onChange={e=>{if(e.target.files.length){pendingFilesRef.current=e;setModal({
+                  title:"📂 Aggiungi transazioni",
+                  message:"Usa questa funzione per aggiungere nuovi record da una nuova estrazione della tua banca.\n\nI dati verranno accodati al database esistente.\n\nAttenzione: se carichi un file già importato in precedenza, le transazioni risulteranno duplicate.",
+                  danger:false,
+                  handler:()=>{handleUpload(pendingFilesRef.current);pendingFilesRef.current=null;}
+                });}}}/>
             </label>
             <label title="Sostituisce i dati del periodo coperto dal file — utile per reimportare un trimestre" style={{background:"#fef3c7",color:"#b45309",border:"1px solid #fcd34d",borderRadius:8,padding:"7px 12px",cursor:syncing?"not-allowed":"pointer",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:4,opacity:syncing?0.6:1}}>
-              🔁 Sostituisci<input type="file" accept=".csv" multiple disabled={syncing}
-                onChange={e=>{
-                  if(!e.target.files.length)return;
-                  alert("Usa questa funzione per ricaricare un\'estrazione che avevi già importato.\n\nLe transazioni con lo stesso intervallo di date verranno eliminate e sostituite con quelle del nuovo file.\n\nLe transazioni di altri periodi non vengono toccate.");
-                  handleReplaceByPeriod(e);
-                }} style={{display:"none"}}/>
+              🔁 Sostituisci<input id="inp-rep" type="file" accept=".csv" multiple style={{display:"none"}} disabled={syncing}
+                onChange={e=>{if(e.target.files.length){pendingFilesRef.current=e;setModal({
+                  title:"🔁 Sostituisci periodo",
+                  message:"Usa questa funzione per ricaricare un\'estrazione che avevi già importato.\n\nLe transazioni con lo stesso intervallo di date verranno eliminate e sostituite con quelle del nuovo file.\n\nLe transazioni di altri periodi non vengono toccate.",
+                  danger:false,
+                  handler:()=>{handleReplaceByPeriod(pendingFilesRef.current);pendingFilesRef.current=null;}
+                });}}}/>
             </label>
             <label title="Cancella tutto e reimporta da zero (seleziona TUTTI i file CSV)" style={{background:"#fee2e2",color:"#dc2626",border:"1px solid #fca5a5",borderRadius:8,padding:"7px 12px",cursor:syncing?"not-allowed":"pointer",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:4,opacity:syncing?0.6:1}}>
-              ♻️ Tutto<input type="file" accept=".csv" multiple onChange={handleFullReimport} style={{display:"none"}} disabled={syncing}/>
+              ♻️ Tutto<input id="inp-full" type="file" accept=".csv" multiple style={{display:"none"}} disabled={syncing}
+                onChange={e=>{if(e.target.files.length){pendingFilesRef.current=e;setModal({
+                  title:"♻️ Reimport completo",
+                  message:`⚠️ Operazione irreversibile.\n\nL'intero database verrà azzerato e sostituito con i ${e.target.files.length} file selezionati.\nTutte le ${txs.length} transazioni attuali andranno perse.\n\nLe tue regole di categorizzazione e le categorie personalizzate rimarranno intatte.`,
+                  danger:true,
+                  handler:()=>{handleFullReimport(pendingFilesRef.current);pendingFilesRef.current=null;}
+                });}}}/>
             </label>
             <button onClick={()=>syncFrom(url,txs.length)} disabled={syncing} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:"7px 11px",cursor:"pointer",fontSize:15}} title="Ricarica da Sheets">🔄</button>
             <button onClick={()=>setSetup(true)} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:"7px 11px",cursor:"pointer",fontSize:15}} title="Impostazioni">⚙️</button>
