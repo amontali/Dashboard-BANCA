@@ -1,0 +1,1669 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Dashboard Bancario</title>
+  <script src="https://unpkg.com/react@17.0.2/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@17.0.2/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
+  <script src="https://unpkg.com/recharts@2.4.3/umd/Recharts.js"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.23.6/babel.min.js"></script>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:#f8fafc;font-family:system-ui,-apple-system,sans-serif;color:#1e293b;height:100vh;overflow:hidden}
+    ::-webkit-scrollbar{width:5px;height:5px}
+    ::-webkit-scrollbar-track{background:#f1f5f9}
+    ::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+    .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;align-items:start}
+    @media(max-width:800px){.grid2,.grid3{grid-template-columns:1fr}}
+    @media(max-width:600px){
+      .sidebar-desktop{display:none!important}
+      .sidebar-mobile{display:flex!important}
+    }
+    @media(min-width:601px){
+      .sidebar-desktop{display:flex}
+      .sidebar-mobile{display:none!important}
+    }
+  </style>
+</head>
+<body><div id="root" style="height:100vh"></div>
+<script type="text/babel">
+const {useState,useEffect,useMemo}=React;
+const {BarChart,Bar,AreaChart,Area,LineChart,Line,PieChart,Pie,Cell,
+       XAxis,YAxis,CartesianGrid,Tooltip,Legend,ResponsiveContainer,ReferenceLine}=Recharts;
+
+// ── PALETTE pastel ────────────────────────────────────────────────────────────
+const C={
+  bg:"#f8fafc",card:"#ffffff",border:"#e2e8f0",
+  text:"#1e293b",muted:"#64748b",faint:"#94a3b8",
+  green:"#4ade80",red:"#f87171",blue:"#60a5fa",
+  amber:"#fcd34d",purple:"#c4b5fd",teal:"#5eead4",
+  sidebar:"#f1f5f9",sideActive:"#60a5fa"
+};
+const PASTEL=[
+  "#93c5fd","#6ee7b7","#fcd34d","#fca5a5","#c4b5fd",
+  "#fdba74","#67e8f9","#bef264","#f9a8d4","#5eead4","#cbd5e1","#a5b4fc"
+];
+const MONTHS_IT=["Gen","Feb","Mar","Apr","Mag","Giu","Lug","Ago","Set","Ott","Nov","Dic"];
+// ── CHAIN MAP — normalizzazione automatica catene/marchi ─────────────────────
+// [regex, nome_visualizzato, categoria]  nome_visualizzato=null → usa nome pulito
+const CHAIN_MAP=[
+  [/\baldi\b/i,"Aldi","Supermercato"],
+  [/esselunga/i,"Esselunga","Supermercato"],
+  [/eurospin/i,"Eurospin","Supermercato"],
+  [/\blidl\b/i,"Lidl","Supermercato"],
+  [/carrefour/i,"Carrefour","Supermercato"],
+  [/\bconad\b/i,"Conad","Supermercato"],
+  [/\bcoop\b/i,"Coop","Supermercato"],
+  [/\bunes\b/i,"Unes","Supermercato"],
+  [/\bsigma\b/i,"Sigma","Supermercato"],
+  [/bennet/i,"Bennet","Supermercato"],
+  [/penny.market|\bpenny\b/i,"Penny Market","Supermercato"],
+  [/il.gigante/i,"Il Gigante","Supermercato"],
+  [/ipercoop/i,"Ipercoop","Supermercato"],
+  [/\bagip\b/i,"Agip","Carburante"],
+  [/\bq8\b/i,"Q8","Carburante"],
+  [/\bshell\b/i,"Shell","Carburante"],
+  [/tamoil/i,"Tamoil","Carburante"],
+  [/\besso\b/i,"Esso","Carburante"],
+  [/totalenerg/i,"TotalEnergies","Carburante"],
+  [/cristella.petroli|iperstaroil|\bapi\b.*(?:pv|carb)/i,null,"Carburante"],
+  [/amzn\b|amazon/i,"Amazon","E-commerce"],
+  [/\btemu\b/i,"Temu","E-commerce"],
+  [/\bebay\b/i,"eBay","E-commerce"],
+  [/zalando/i,"Zalando","E-commerce"],
+  [/netflix/i,"Netflix","Streaming"],
+  [/spotify/i,"Spotify","Streaming"],
+  [/youtube.premium/i,"YouTube Premium","Streaming"],
+  [/google.one|google\.com/i,"Google","Streaming"],
+  [/disney/i,"Disney+","Streaming"],
+  [/\bdazn\b/i,"DAZN","Streaming"],
+  [/mcdonald/i,"McDonald's","Ristorazione"],
+  [/burger.king|bk.project/i,"Burger King","Ristorazione"],
+  [/just.?eat|justeatital/i,"Just Eat","Ristorazione"],
+  [/fitactive/i,"Fitactive","Sport / Fitness"],
+  [/virgin.active/i,"Virgin Active","Sport / Fitness"],
+  [/decathlon/i,"Decathlon","Sport / Fitness"],
+  [/bricoman/i,"Bricoman","Casa / Brico"],
+  [/leroy.merlin/i,"Leroy Merlin","Casa / Brico"],
+  [/\bikea\b/i,"IKEA","Casa / Brico"],
+  [/\btim\b/i,"TIM","Telefonia"],
+  [/vodafone/i,"Vodafone","Telefonia"],
+  [/\biliad\b/i,"Iliad","Telefonia"],
+  [/fastweb/i,"Fastweb","Telefonia"],
+  [/\benel\b/i,"Enel","Utenze"],
+  [/\ba2a\b/i,"A2A","Utenze"],
+  [/\bhera\b/i,"Hera","Utenze"],
+  [/eni.gas/i,"Eni Gas","Utenze"],
+  [/multienerg/i,"Multienergia","Utenze"],
+  [/generali/i,"Generali","Assicurazioni"],
+  [/allianz/i,"Allianz","Assicurazioni"],
+  [/unipol/i,"Unipol","Assicurazioni"],
+  [/farmacia/i,null,"Farmacia"],
+  // ── Abbigliamento / Scarpe ──
+  [/\bzara\b/i,"Zara","Abbigliamento / Scarpe"],
+  [/\bh&m\b|h and m/i,"H&M","Abbigliamento / Scarpe"],
+  [/\bovs\b/i,"OVS","Abbigliamento / Scarpe"],
+  [/pittarosso/i,"Pittarosso","Abbigliamento / Scarpe"],
+  [/\bupim\b/i,"UPIM","Abbigliamento / Scarpe"],
+  [/intimissimi/i,"Intimissimi","Abbigliamento / Scarpe"],
+  [/calzedonia/i,"Calzedonia","Abbigliamento / Scarpe"],
+  [/tezenis/i,"Tezenis","Abbigliamento / Scarpe"],
+  [/benetton/i,"Benetton","Abbigliamento / Scarpe"],
+  [/\bmango\b/i,"Mango","Abbigliamento / Scarpe"],
+  [/terranova/i,"Terranova","Abbigliamento / Scarpe"],
+  [/alcott/i,"Alcott","Abbigliamento / Scarpe"],
+  [/falconeri/i,"Falconeri","Abbigliamento / Scarpe"],
+  [/liu.?jo/i,"Liu Jo","Abbigliamento / Scarpe"],
+  [/motivi/i,"Motivi","Abbigliamento / Scarpe"],
+  [/foot.?locker/i,"Foot Locker","Abbigliamento / Scarpe"],
+  [/primark/i,"Primark","Abbigliamento / Scarpe"],
+  [/primadonna/i,"Primadonna","Abbigliamento / Scarpe"],
+  [/scarpe.*scarpe|scarpe&scarpe/i,"Scarpe&Scarpe","Abbigliamento / Scarpe"],
+  [/\bnike\b/i,"Nike","Abbigliamento / Scarpe"],
+  [/\badidas\b/i,"Adidas","Abbigliamento / Scarpe"],
+  [/\bpuma\b/i,"Puma","Abbigliamento / Scarpe"],
+  [/pull.?bear/i,"Pull&Bear","Abbigliamento / Scarpe"],
+  [/stradivarius/i,"Stradivarius","Abbigliamento / Scarpe"],
+  [/massimo.dutti/i,"Massimo Dutti","Abbigliamento / Scarpe"],
+  // ── Beauty / Cura ──
+  [/sephora/i,"Sephora","Beauty / Cura"],
+  [/douglas/i,"Douglas","Beauty / Cura"],
+  [/\bkiko\b/i,"Kiko","Beauty / Cura"],
+  [/bottega.verde/i,"Bottega Verde","Beauty / Cura"],
+  [/yves.rocher/i,"Yves Rocher","Beauty / Cura"],
+  [/\blimoni\b/i,"Limoni","Beauty / Cura"],
+  [/wycon/i,"Wycon","Beauty / Cura"],
+  [/notino/i,"Notino","Beauty / Cura"],
+  [/conad.*beauty|beauty.*conad/i,null,"Beauty / Cura"],
+  // ── Elettronica ──
+  [/mediaworld|media.world/i,"MediaWorld","Elettronica"],
+  [/unieuro/i,"Unieuro","Elettronica"],
+  [/\bexpert\b/i,"Expert","Elettronica"],
+  [/euronics/i,"Euronics","Elettronica"],
+  [/\btrony\b/i,"Trony","Elettronica"],
+  [/saturn/i,"Saturn","Elettronica"],
+  [/apple.store|\bapple\b/i,"Apple","Elettronica"],
+  // ── Software / AI ──
+  [/midjourney/i,"Midjourney","Software / AI"],
+  [/openai/i,"OpenAI","Software / AI"],
+  [/\bcanva\b/i,"Canva","Software / AI"],
+  [/\badobe\b/i,"Adobe","Software / AI"],
+  [/\bmicrosoft\b/i,"Microsoft","Software / AI"],
+  [/\bgithub\b/i,"GitHub","Software / AI"],
+  [/dropbox/i,"Dropbox","Software / AI"],
+  [/\bicloud\b/i,"iCloud","Software / AI"],
+  [/onedrive/i,"OneDrive","Software / AI"],
+  [/\bnotion\b/i,"Notion","Software / AI"],
+  [/\bslack\b/i,"Slack","Software / AI"],
+  [/\bzoom\b/i,"Zoom","Software / AI"],
+  [/chatgpt/i,"ChatGPT","Software / AI"],
+  [/\bgoogle\b(?!.*gas)/i,"Google","Software / AI"],
+  // ── Animali ──
+  [/arcaplanet/i,"Arcaplanet","Animali"],
+  [/isola.*tesori/i,"Isola dei Tesori","Animali"],
+  [/maxi.?zoo/i,"Maxi Zoo","Animali"],
+  [/zooplus/i,"Zooplus","Animali"],
+  [/\bpetco\b/i,"Petco","Animali"],
+  // ── Trasporti / Viaggio ──
+  [/trenitalia/i,"Trenitalia","Trasporti / Viaggio"],
+  [/\bitalo\b/i,"Italo","Trasporti / Viaggio"],
+  [/frecciarossa/i,"Frecciarossa","Trasporti / Viaggio"],
+  [/ryanair/i,"Ryanair","Trasporti / Viaggio"],
+  [/easyjet/i,"EasyJet","Trasporti / Viaggio"],
+  [/flixbus/i,"FlixBus","Trasporti / Viaggio"],
+  [/blablacar/i,"BlaBlaCar","Trasporti / Viaggio"],
+  [/\buber\b/i,"Uber","Trasporti / Viaggio"],
+  [/airbnb/i,"Airbnb","Trasporti / Viaggio"],
+  [/booking\.com/i,"Booking.com","Trasporti / Viaggio"],
+  [/\batm\b.*bigliett|bigliett.*\batm\b/i,"ATM Milano","Trasporti / Viaggio"],
+  [/telepass/i,"Telepass","Trasporti / Viaggio"],
+  // ── Ristorazione (aggiuntivi) ──
+  [/pizza.mundial/i,"Pizza Mundial","Ristorazione"],
+  [/\bkfc\b/i,"KFC","Ristorazione"],
+  [/subway/i,"Subway","Ristorazione"],
+  [/five.guys/i,"Five Guys","Ristorazione"],
+  [/old.wild.west/i,"Old Wild West","Ristorazione"],
+  [/roadhouse/i,"Roadhouse","Ristorazione"],
+  [/domino/i,"Domino's","Ristorazione"],
+  [/starbucks/i,"Starbucks","Ristorazione"],
+  [/autogrill/i,"Autogrill","Ristorazione"],
+  // ── Cultura / Svago ──
+  [/viridea/i,"Viridea","Cultura / Svago"],
+  [/feltrinelli/i,"Feltrinelli","Cultura / Svago"],
+  [/mondadori/i,"Mondadori","Cultura / Svago"],
+  [/\bibs\.it|ibs\b/i,"IBS","Cultura / Svago"],
+  [/libraccio/i,"Libraccio","Cultura / Svago"],
+  [/\bcinema\b/i,null,"Cultura / Svago"],
+  [/ticketmaster|ticketone/i,null,"Cultura / Svago"],
+  // ── Casa / Brico (aggiuntivi) ──
+  [/zara.home/i,"Zara Home","Casa / Brico"],
+  [/westwing/i,"Westwing","Casa / Brico"],
+  [/maisons.du.monde/i,"Maisons du Monde","Casa / Brico"],
+];
+
+const CATS=["Supermercato","Carburante","E-commerce","Streaming","Ristorazione","Sport / Fitness","Casa / Brico","Abbigliamento / Scarpe","Beauty / Cura","Elettronica","Animali","Trasporti / Viaggio","Software / AI","Cultura / Svago","Telefonia","Utenze","Assicurazioni","Farmacia","Tasse","Bonifici","Prelievi ATM","Carta di Credito","Rate / Dom.","Stipendio","Spese Bancarie","Investimenti","Altro"];
+
+function rulesGet(){try{const d=localStorage.getItem("userRules");return d?JSON.parse(d):[]}catch{return[]}}
+function rulesSave(r){try{localStorage.setItem("userRules",JSON.stringify(r))}catch{}}
+function apiKeyGet(){try{return localStorage.getItem("claudeApiKey")||""}catch{return""}}
+function apiKeySave(k){try{localStorage.setItem("claudeApiKey",k)}catch{}}
+
+// Classifica vendor sconosciuti con Claude API
+async function classifyWithClaude(vendors, cats, apiKey){
+  const prompt=`Sei un esperto di finanza personale italiana. Classifica questi esercenti/venditori nella categoria più appropriata tra quelle disponibili.
+
+Categorie disponibili: ${cats.join(", ")}
+
+Esercenti da classificare:
+${vendors.map((v,i)=>`${i+1}. ${v}`).join("\n")}
+
+Rispondi SOLO con un JSON array, niente altro:
+[{"vendor":"nome esatto","category":"categoria"}]`;
+  const r=await fetch("https://api.anthropic.com/v1/messages",{
+    method:"POST",
+    headers:{
+      "Content-Type":"application/json",
+      "x-api-key":apiKey,
+      "anthropic-version":"2023-06-01",
+      "anthropic-dangerous-direct-browser-access":"true"
+    },
+    body:JSON.stringify({
+      model:"claude-haiku-4-5-20251001",
+      max_tokens:1500,
+      messages:[{role:"user",content:prompt}]
+    })
+  });
+  const d=await r.json();
+  if(d.error)throw new Error(d.error.message);
+  const text=d.content[0].text;
+  const clean=text.replace(/```json|```/g,"").trim();
+  return JSON.parse(clean);
+}
+function catsGet(){try{const d=localStorage.getItem("userCats");return d?JSON.parse(d):[...CATS]}catch{return[...CATS]}}
+function catsSave(c){try{localStorage.setItem("userCats",JSON.stringify(c))}catch{}}
+function aliasGet(){try{return JSON.parse(localStorage.getItem("catAliases")||"{}")}catch{return{}}}
+function aliasSave(a){try{localStorage.setItem("catAliases",JSON.stringify(a))}catch{}}
+function applyAlias(cat){const a=aliasGet();return a[cat]||cat;}
+// Salva/carica TUTTE le impostazioni su Sheets (tab "Impostazioni")
+async function settingsPush(url){
+  const data={cats:catsGet(),rules:rulesGet(),aliases:aliasGet()};
+  const enc=encodeURIComponent(JSON.stringify(data));
+  await fetch(`${url}?action=saveSettings&data=${enc}`,{redirect:"follow"}).catch(()=>{});
+}
+async function settingsPull(url){
+  try{
+    const r=await fetch(`${url}?action=readSettings`,{redirect:"follow"});
+    const d=await r.json();
+    if(d.status==="ok"&&d.settings){
+      if(d.settings.cats?.length){catsSave(d.settings.cats);}
+      if(d.settings.rules){rulesSave(d.settings.rules);}
+      if(d.settings.aliases){aliasSave(d.settings.aliases);}
+      return true;
+    }
+  }catch{}
+  return false;
+}
+
+function normalizeVendor(name,userRules){
+  const v=name||"";
+  for(const r of userRules){
+    try{if(new RegExp(r.pattern,"i").test(v))return{name:r.name||v,cat:r.category};}catch{}
+  }
+  for(const [rx,nm,cat] of CHAIN_MAP){
+    if(rx.test(v))return{name:nm||v,cat};
+  }
+  return null;
+}
+const VERSION="v5.11 · 18 mag 2025";
+
+// ── FORMATTERS ────────────────────────────────────────────────────────────────
+const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",maximumFractionDigits:0}).format(n||0);
+const fmtK=n=>`€${Math.abs(n)>=1000?(n/1000).toFixed(0)+"k":Math.round(n)}`;
+const fmtKS=n=>`€${Math.abs(n)>=1000?(n/1000).toFixed(1)+"k":Math.round(n)}`;
+// "2015-01" → "Gen/15"
+const fmtYm=ym=>{try{const[y,m]=String(ym).split("-");return MONTHS_IT[parseInt(m,10)-1]+"/"+y.slice(2);}catch{return ym;}};
+// Normalizza date da Google Sheets (potrebbero arrivare come Date object o stringa diversa)
+function normDate(v){
+  if(!v)return"";
+  if(typeof v==="number"){// serial Sheets date
+    const d=new Date(Math.round((v-25569)*86400*1000));
+    return d.toISOString().slice(0,10);
+  }
+  const s=String(v);
+  if(/^\d{4}-\d{2}-\d{2}/.test(s))return s.slice(0,10);
+  // Prova a parsare
+  const d=new Date(s);
+  if(!isNaN(d))return d.toISOString().slice(0,10);
+  return s;
+}
+
+// ── LOCALSTORAGE ──────────────────────────────────────────────────────────────
+const lsGet=()=>{try{const d=localStorage.getItem("txs");return d?JSON.parse(d):[]}catch{return[]}};
+const lsSave=rows=>{try{localStorage.setItem("txs",JSON.stringify(rows))}catch{}};
+
+// ── VENDOR EXTRACT ────────────────────────────────────────────────────────────
+function titleCase(s){
+  return s.toLowerCase().replace(/(?:^|\s)\S/g,c=>c.toUpperCase()).trim();
+}
+function cleanMerchant(raw){
+  let v=(raw||"").trim();
+  v=v.replace(/\s*-?\s*[Tt]ransaz[^\s]*/g,"");     // rimuove "Transazione C-less"
+  v=v.replace(/\s*[Cc]-[Ll]ess\s*/gi,"");
+  v=v.replace(/\s*-\s*(?:VIA|V\.?LE|VIALE|CORSO|C\.?SO|PIAZZA|P\.?ZZA|LOC|FRAZ|STR|SNC|S\.N\.C|S\.S\.|S\.P\.|SP\s*\d|SS\s*\d|\d{5}).*$/i,"");
+  v=v.replace(/\s+(?:VIA|VIALE|CORSO|PIAZZA|LOC|FRAZ)\s+.+$/i,"");
+  v=v.replace(/\s*-\s*$/,"");
+  v=v.replace(/^[\'"]/,"");
+  v=v.replace(/\s+[A-Z]\d{2,}(?:\s|$)/g," ");
+  v=v.replace(/\s+\d+\s*$/,"");
+  v=v.replace(/\s+(?:S\.?R\.?L\.?S?\.?|S\.?P\.?A\.?|S\.?N\.?C\.?|SRL|SPA|SNC|SRLS)\s*\.?\s*$/i,"");
+  v=v.replace(/\s{2,}/g," ").trim();
+  return titleCase(v).slice(0,40);
+}
+function extractAndClassify(causale,desc,userRules){
+  const raw=desc||"";
+  let rawName=null;
+  const pm=raw.match(/[Pp]resso\s+(.+?)(?:\s*-\s*(?:VIA|V\.?LE|VIALE|CORSO|C\.?SO|PIAZZA|P\.?ZZA|LOC|FRAZ|STR|SNC|\d{5})|$)/i);
+  if(pm)rawName=cleanMerchant(pm[1]);
+  if(!rawName){const bm=raw.match(/(?:A FAVORE DI|BENEF(?:ICIARIO)?[.:]?\s*)([A-Za-zÀ-ÿ].+?)(?:\s{2,}|\s+(?:IBAN|IT\d\d)|$)/i);if(bm)rawName=cleanMerchant(bm[1]);}
+  if(!rawName){const am=raw.match(/ADDEBITO\s+(?:SDD|MAV|DIRETTO|UTENZA)\s+(.+?)(?:\s{2,}|$)/i);if(am)rawName=cleanMerchant(am[1]);}
+  if(!rawName)rawName=(causale||"N/D").slice(0,40);
+  const norm=normalizeVendor(rawName,userRules||[]);
+  const rawCat=norm?norm.cat:categorize(causale,desc);
+  return{vendor:norm?norm.name:rawName,categoria:applyAlias(rawCat)};
+}
+function extractVendor(causale,desc){return extractAndClassify(causale,desc,[]).vendor;}
+
+// ── CSV PARSE ─────────────────────────────────────────────────────────────────
+function parseAmt(s){if(!s?.trim())return 0;return parseFloat(s.trim().replace("+","").replace(/\./g,"").replace(",","."))||0;}
+function categorize(caus,desc){
+  const c=(caus+" "+desc).toUpperCase();
+  if(/SUPERMERCATO|SUPERMERCATI|ESSELUNGA|CARREFOUR|CONAD|LIDL|UNES|COOP |SIGMA /.test(c))return"Supermercato";
+  if(/FARMACIA|FARMA/.test(c))return"Farmacia";
+  if(/RISTORANTE|PIZZERIA|TRATTORIA|OSTERIA/.test(c))return"Ristorazione";
+  if(/AMAZON|EBAY|ZALANDO/.test(c))return"E-commerce";
+  if(/CARBURANTE|BENZINA|AGIP|Q8|SHELL|TAMOIL|ESSO/.test(c))return"Carburante";
+  if(/AUTOSTRADA|TELEPASS|PEDAGG/.test(c))return"Pedaggi";
+  if(/ENEL|A2A|HERA|EDISON|ENI GAS|BOLLETTA/.test(c))return"Utenze";
+  if(/TIM SPA|VODAFONE|WIND |FASTWEB|ILIAD/.test(c))return"Telefonia";
+  if(/NETFLIX|SPOTIFY|PRIME VIDEO|DISNEY|DAZN|SKY SPA/.test(c))return"Streaming";
+  if(/ASSICURAZIONE|GENERALI|ALLIANZ|UNIPOL/.test(c))return"Assicurazioni";
+  if(/BRICOMAN|IKEA|LEROY MERLIN/.test(c))return"Casa / Brico";
+  if(/COMPRAVENDITA TITOLI|TRADING|FONDI|VENDITA FONDI|ACQUISTO FONDI|TITOLI/.test(c))return"📈 Investimenti";
+  if(/IMPOSTA DI BOLLO TRADING|BOLLI GOVERN|IMPOSTE E TASSE|PAGAMENTO F24|BOLLO AUTO/.test(c))return"Tasse";
+  if(/IMPOSTA DI BOLLO|INTERESSI E COMPETENZE|COMMISSIONE/.test(c))return"Spese Bancarie";
+  if(/GIROCONTO|CARTA CREDITO ING|ADDEBITO CARTA DI CREDITO/.test(c))return"Carta di Credito";
+  if(/ADDEBITO MAV|ADDEBITO SDD|ADDEBITO DIRETTO/.test(c))return"Rate / Dom.";
+  if(/STIPENDIO|DHL EXPRESS|EMOLUMENTI/.test(c))return"Stipendio";
+  if(/BONIFICO|SEPA/.test(c))return"Bonifici";
+  if(/BANCOMAT|PRELIEVO/.test(c))return"Prelievi ATM";
+  return"Altro";
+}
+function parseCSV(text){
+  const rows=[];
+  for(const line of text.trim().split("\n").slice(1)){
+    const p=line.trim().split(";");
+    if(p.length<4)continue;
+    const dateStr=p[0]?.trim(),caus=p[4]?.trim()||"",desc=p[5]?.trim()||"";
+    if(!caus&&desc.includes("Saldo"))continue;
+    const uscita=Math.abs(parseAmt(p[2])),entrata=parseAmt(p[3]);
+    if(uscita===0&&entrata===0)continue;
+    try{
+      const [dd,mm,yyyy]=dateStr.split("/");
+      if(!dd||!mm||!yyyy)continue;
+      const cl=extractAndClassify(caus,desc,rulesGet());
+      rows.push({
+        date:`${yyyy}-${mm.padStart(2,"0")}-${dd.padStart(2,"0")}`,
+        ym:`${yyyy}-${mm.padStart(2,"0")}`,year:+yyyy,month:+mm,
+        uscita:uscita>0?uscita:0,entrata:entrata>0?entrata:0,
+        causale:caus,descrizione:desc,
+        categoria:cl.categoria,
+        vendor:cl.vendor
+      });
+    }catch{continue;}
+  }
+  return rows;
+}
+
+// ── GOOGLE SHEETS ─────────────────────────────────────────────────────────────
+async function gsRead(url){
+  const r=await fetch(`${url}?action=read`,{redirect:"follow"});
+  const d=await r.json();
+  if(d.status!=="ok")throw new Error(d.error||"Errore");
+  return d.rows.map(row=>{
+    const date=normDate(row.date);
+    // Ricostruisce ym e year/month dalla data normalizzata se necessario
+    const ym=date.slice(0,7);
+    const year=+row.year||(date?+date.slice(0,4):0);
+    const month=+row.month||(date?+date.slice(5,7):0);
+    return{
+      date,ym,year,month,
+      uscita:+row.uscita||0,entrata:+row.entrata||0,
+      causale:String(row.causale||""),descrizione:String(row.descrizione||""),
+      categoria:String(row.categoria||"Altro"),
+      ...extractAndClassify(String(row.causale||""),String(row.descrizione||""),rulesGet())
+    };
+  }).filter(r=>r.date&&r.year>2000);
+}
+async function gsWrite(url,rows,onProgress){
+  const CHUNK=10,PARALLEL=10,chunks=[]; // 10 righe x 10 paralleli = ~35s per 4000 tx
+  for(let i=0;i<rows.length;i+=CHUNK)chunks.push(rows.slice(i,i+CHUNK));
+  const total=chunks.length;
+  let done=0;
+  for(let i=0;i<chunks.length;i+=PARALLEL){
+    const batch=chunks.slice(i,i+PARALLEL);
+    await Promise.all(batch.map(chunk=>{
+      const enc=encodeURIComponent(JSON.stringify(chunk));
+      return fetch(`${url}?action=write&data=${enc}`,{redirect:"follow"}).catch(()=>{});
+    }));
+    done+=batch.length;
+    if(onProgress)onProgress(done,total,Math.round(rows.length*done/total));
+  }
+  await new Promise(r=>setTimeout(r,1500));
+}
+async function gsClear(url){
+  try{
+    const r=await fetch(`${url}?action=clear`,{redirect:"follow"});
+    const d=await r.json();
+    return d;
+  }catch(e){return null;}
+}
+
+// ── AGGREGATION ───────────────────────────────────────────────────────────────
+function filterTxs(txs,year,month){
+  if(!year)return txs;
+  const y=txs.filter(t=>t.year===year);
+  return month?y.filter(t=>t.month===month):y;
+}
+function aggregate(txs,excInvest){
+  const data=excInvest?txs.filter(t=>t.categoria!=="📈 Investimenti"):txs;
+  const byYm={},byYear={},byCat={};
+  for(const t of data){
+    if(!byYm[t.ym])byYm[t.ym]={ym:t.ym,year:t.year,month:t.month,entrate:0,uscite:0};
+    byYm[t.ym].entrate+=t.entrata;byYm[t.ym].uscite+=t.uscita;
+    if(!byYear[t.year])byYear[t.year]={year:t.year,entrate:0,uscite:0};
+    byYear[t.year].entrate+=t.entrata;byYear[t.year].uscite+=t.uscita;
+    if(t.uscita>0)byCat[t.categoria]=(byCat[t.categoria]||0)+t.uscita;
+  }
+  const monthly=Object.values(byYm).sort((a,b)=>a.ym.localeCompare(b.ym))
+    .map(m=>({...m,saldo:m.entrate-m.uscite,label:`${String(m.month).padStart(2,"0")}/${String(m.year).slice(2)}`}));
+  const yearly=Object.values(byYear).sort((a,b)=>a.year-b.year).map(y=>({...y,saldo:y.entrate-y.uscite}));
+  const catOut=Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([name,value])=>({name,value:Math.round(value)}));
+  return{monthly,yearly,catOut,totalE:data.reduce((s,t)=>s+t.entrata,0),totalU:data.reduce((s,t)=>s+t.uscita,0)};
+}
+function investPnL(txs){
+  const inv=txs.filter(t=>t.categoria==="📈 Investimenti");
+  const byYear={};
+  inv.forEach(t=>{if(!byYear[t.year])byYear[t.year]={year:t.year,acquisti:0,vendite:0};byYear[t.year].acquisti+=t.uscita;byYear[t.year].vendite+=t.entrata;});
+  return{totalOut:inv.reduce((s,t)=>s+t.uscita,0),totalIn:inv.reduce((s,t)=>s+t.entrata,0),count:inv.length,byYear:Object.values(byYear).sort((a,b)=>a.year-b.year)};
+}
+function aggregateVendors(txs,catFilter){
+  const base=catFilter?txs.filter(t=>t.categoria===catFilter):txs;
+  const byV={};
+  base.filter(t=>t.uscita>0).forEach(t=>{
+    const v=t.vendor||extractAndClassify(t.causale,t.descrizione,rulesGet()).vendor;
+    if(!byV[v])byV[v]={name:v,total:0,count:0,byYm:{}};
+    byV[v].total+=t.uscita;byV[v].count++;
+    byV[v].byYm[t.ym]=(byV[v].byYm[t.ym]||0)+t.uscita;
+  });
+  return Object.values(byV).sort((a,b)=>b.total-a.total);
+}
+
+// ── APPS SCRIPT CODE ──────────────────────────────────────────────────────────
+const SCRIPT_CODE=`function doGet(e) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName('Transazioni');
+  if (!sheet) {
+    sheet = ss.insertSheet('Transazioni');
+    sheet.appendRow(['date','ym','year','month','uscita',
+                     'entrata','causale','descrizione','categoria']);
+    return ok({rows:[]});
+  }
+  const action = e.parameter.action || 'read';
+  if (action === 'read') {
+    const data = sheet.getDataRange().getValues();
+    if (data.length <= 1) return ok({rows:[]});
+    const headers = data[0];
+    const rows = data.slice(1).map(r => {
+      const o={};
+      headers.forEach((h,i)=>{
+        let v=r[i];
+        // Converte oggetti Date in stringa ISO per evitare problemi di formato
+        if(v instanceof Date) v=Utilities.formatDate(v,'UTC','yyyy-MM-dd');
+        o[h]=v;
+      });
+      return o;
+    });
+    return ok({rows});
+  }
+  if (action === 'write') {
+    const rows = JSON.parse(decodeURIComponent(e.parameter.data));
+    const values = rows.map(r=>[r.date,r.ym,r.year,r.month,r.uscita,r.entrata,r.causale,r.descrizione,r.categoria]);
+    const startRow = sheet.getLastRow() + 1;
+    sheet.getRange(startRow,1,values.length,9).setValues(values);
+    return ok({added: rows.length});
+  }
+  if (action === 'clear') {
+    const lastRow = sheet.getLastRow();
+    if (lastRow > 1) sheet.deleteRows(2, lastRow - 1);
+    return ok({cleared: true});
+  }
+  if (action === 'saveSettings') {
+    const settings = JSON.parse(decodeURIComponent(e.parameter.data));
+    let sSheet = ss.getSheetByName('Impostazioni');
+    if (!sSheet) sSheet = ss.insertSheet('Impostazioni');
+    sSheet.clearContents();
+    sSheet.getRange('A1').setValue(JSON.stringify(settings.cats||[]));
+    sSheet.getRange('A2').setValue(JSON.stringify(settings.rules||[]));
+    sSheet.getRange('A3').setValue(JSON.stringify(settings.aliases||{}));
+    return ok({saved: true});
+  }
+  if (action === 'readSettings') {
+    const sSheet = ss.getSheetByName('Impostazioni');
+    if (!sSheet) return ok({settings: null});
+    const cats = sSheet.getRange('A1').getValue();
+    const rules = sSheet.getRange('A2').getValue();
+    const aliases = sSheet.getRange('A3').getValue();
+    return ok({settings: {
+      cats: cats ? JSON.parse(cats) : [],
+      rules: rules ? JSON.parse(rules) : [],
+      aliases: aliases ? JSON.parse(aliases) : {}
+    }});
+  }
+  return ok({error:'unknown'});
+}
+function ok(data){
+  return ContentService.createTextOutput(JSON.stringify({status:'ok',...data}))
+    .setMimeType(ContentService.MimeType.JSON);
+}`;
+
+// ── UI ATOMS ──────────────────────────────────────────────────────────────────
+function Tip({active,payload,label}){
+  if(!active||!payload?.length)return null;
+  return(
+    <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 14px",fontSize:12,boxShadow:"0 4px 16px rgba(0,0,0,.08)"}}>
+      <p style={{color:C.muted,marginBottom:6,fontWeight:600}}>{label}</p>
+      {payload.map((p,i)=>(
+        <div key={i} style={{color:p.color||C.text,display:"flex",justifyContent:"space-between",gap:16}}>
+          <span>{p.name}</span><span style={{fontWeight:700}}>{fmt(p.value)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+function Card({label,value,sub,color,icon}){
+  return(
+    <div style={{background:C.card,border:`1px solid ${C.border}`,borderLeft:`4px solid ${color}`,borderRadius:10,padding:"12px 16px",flex:"1 1 120px"}}>
+      <div style={{color:C.muted,fontSize:10,fontWeight:600,textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>{icon} {label}</div>
+      <div style={{color:C.text,fontSize:19,fontWeight:800,lineHeight:1}}>{value}</div>
+      {sub&&<div style={{color:C.faint,fontSize:10,marginTop:4}}>{sub}</div>}
+    </div>
+  );
+}
+function Box({title,children,minH}){
+  return(
+    <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:16,minHeight:minH||"auto",display:"flex",flexDirection:"column"}}>
+      <h3 style={{margin:"0 0 12px",fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:1.2,flexShrink:0}}>{title}</h3>
+      <div style={{flex:1}}>{children}</div>
+    </div>
+  );
+}
+function Pill({children,active,onClick,color}){
+  return(
+    <button onClick={onClick} style={{
+      background:active?(color||"#60a5fa"):"transparent",
+      color:active?"#fff":C.muted,
+      border:`1px solid ${active?(color||"#60a5fa"):C.border}`,
+      borderRadius:6,padding:"4px 10px",fontSize:11,
+      fontWeight:active?600:400,cursor:"pointer",whiteSpace:"nowrap"
+    }}>{children}</button>
+  );
+}
+
+// ── SIDEBAR ───────────────────────────────────────────────────────────────────
+function Sidebar({years,selYear,setSelYear,selMonth,setSelMonth}){
+  const SBtn=({label,active,onClick})=>(
+    <button onClick={onClick} style={{
+      width:"100%",padding:"6px 4px",marginBottom:2,
+      background:active?"#60a5fa":"transparent",
+      color:active?"#fff":C.muted,
+      border:"none",borderRadius:6,
+      fontSize:11,fontWeight:active?700:400,cursor:"pointer",
+      transition:"all .15s"
+    }}>{label}</button>
+  );
+  return(
+    <div style={{
+      width:64,background:C.sidebar,borderRight:`1px solid ${C.border}`,
+      display:"flex",flexDirection:"column",overflowY:"auto",
+      flexShrink:0,padding:"8px 4px"
+    }}>
+      <div style={{fontSize:8,color:C.faint,fontWeight:700,textAlign:"center",textTransform:"uppercase",letterSpacing:1,padding:"8px 0 6px"}}>ANNO</div>
+      <SBtn label="Tutti" active={!selYear} onClick={()=>{setSelYear(null);setSelMonth(null);}}/>
+      {years.map(y=>(
+        <SBtn key={y} label={y} active={selYear===y} onClick={()=>{setSelYear(selYear===y?null:y);setSelMonth(null);}}/>
+      ))}
+      {selYear&&(
+        <>
+          <div style={{height:1,background:C.border,margin:"8px 4px"}}/>
+          <div style={{fontSize:8,color:C.faint,fontWeight:700,textAlign:"center",textTransform:"uppercase",letterSpacing:1,padding:"4px 0 6px"}}>MESE</div>
+          {MONTHS_IT.map((m,i)=>(
+            <SBtn key={i} label={m} active={selMonth===i+1} onClick={()=>setSelMonth(selMonth===i+1?null:i+1)}/>
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── TAB COMPONENTS ────────────────────────────────────────────────────────────
+
+function PanoramicaTab({allTxs,filteredTxs,selYear,selMonth,excInvest}){
+  // Quando anno selezionato: usa i dati filtrati; altrimenti tutto lo storico
+  const displayTxs=selYear?filteredTxs:allTxs;
+  const agg=useMemo(()=>aggregate(displayTxs,excInvest),[displayTxs,excInvest]);
+  const years=[...new Set(allTxs.map(t=>t.year))].sort();
+  // Heatmap data
+  const heatGrid=useMemo(()=>{
+    const g={};let max=0;
+    allTxs.filter(t=>t.uscita>0&&t.categoria!=="📈 Investimenti").forEach(t=>{
+      const k=`${t.year}-${t.month}`;g[k]=(g[k]||0)+t.uscita;if(g[k]>max)max=g[k];
+    });
+    return{g,max};
+  },[allTxs]);
+  const heatColor=v=>{
+    if(!v)return"#f1f5f9";
+    const i=v/heatGrid.max;
+    if(i<0.2)return"#dbeafe";
+    if(i<0.4)return"#93c5fd";
+    if(i<0.6)return"#60a5fa";
+    if(i<0.8)return"#3b82f6";
+    return"#1d4ed8";
+  };
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:16}}>
+      <div className="grid2">
+        <Box title={selYear?(selMonth?`Entrate vs Uscite — ${MONTHS_IT[selMonth-1]} ${selYear}`:`Entrate vs Uscite mensili — ${selYear}`):"Entrate vs Uscite per Anno"} minH={300}>
+          <ResponsiveContainer width="100%" height={260}>
+            <BarChart data={selYear?agg.monthly:agg.yearly}>
+              <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+              <XAxis dataKey={selYear?"label":"year"} tick={{fill:C.muted,fontSize:11}}/>
+              <YAxis tickFormatter={fmtK} tick={{fill:C.muted,fontSize:10}}/>
+              <Tooltip content={<Tip/>}/>
+              <Legend wrapperStyle={{fontSize:12}}/>
+              <Bar dataKey="entrate" name="Entrate" fill="#6ee7b7" radius={[3,3,0,0]}/>
+              <Bar dataKey="uscite" name="Uscite" fill="#fca5a5" radius={[3,3,0,0]}/>
+            </BarChart>
+          </ResponsiveContainer>
+        </Box>
+        <Box title={selYear?(selMonth?`Saldo — ${MONTHS_IT[selMonth-1]} ${selYear}`:`Saldo mensile — ${selYear}`):"Saldo Netto per Anno"} minH={300}>
+          <ResponsiveContainer width="100%" height={260}>
+            <BarChart data={selYear?agg.monthly:agg.yearly}>
+              <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+              <XAxis dataKey={selYear?"label":"year"} tick={{fill:C.muted,fontSize:11}}/>
+              <YAxis tickFormatter={fmtK} tick={{fill:C.muted,fontSize:10}}/>
+              <Tooltip content={<Tip/>}/>
+              <ReferenceLine y={0} stroke="#94a3b8"/>
+              <Bar dataKey="saldo" name="Saldo" radius={[3,3,0,0]}>
+                {(selYear?agg.monthly:agg.yearly).map((_,i)=>{const d=selYear?agg.monthly[i]:agg.yearly[i];return<Cell key={i} fill={d.saldo>=0?"#6ee7b7":"#fca5a5"}/>;} )}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </Box>
+      </div>
+      {/* Heatmap */}
+      <Box title="Mappa calore spese mensili (esclusi investimenti)">
+        <div style={{overflowX:"auto"}}>
+          <div style={{display:"grid",gridTemplateColumns:`56px repeat(12,1fr)`,gap:3,minWidth:500}}>
+            <div/>
+            {MONTHS_IT.map(m=><div key={m} style={{textAlign:"center",fontSize:10,color:C.muted,fontWeight:600,padding:"2px 0"}}>{m}</div>)}
+            {years.map(y=>[
+              <div key={y+"-l"} style={{fontSize:10,color:C.muted,fontWeight:600,display:"flex",alignItems:"center",justifyContent:"flex-end",paddingRight:6}}>{y}</div>,
+              ...[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>{
+                const v=heatGrid.g[`${y}-${m}`]||0;
+                const hi=(v/heatGrid.max)>0.5;
+                return(
+                  <div key={y+"-"+m} title={`${MONTHS_IT[m-1]} ${y}: ${fmt(v)}`} style={{
+                    background:heatColor(v),borderRadius:4,padding:"3px 1px",
+                    textAlign:"center",fontSize:9,color:hi?"#fff":"#64748b",
+                    minHeight:26,display:"flex",alignItems:"center",justifyContent:"center"
+                  }}>{v>0?fmtKS(v):""}</div>
+                );
+              })
+            ])}
+          </div>
+        </div>
+        <div style={{marginTop:10,display:"flex",alignItems:"center",gap:6,fontSize:10,color:C.faint}}>
+          <span>Basso</span>
+          {["#dbeafe","#93c5fd","#60a5fa","#3b82f6","#1d4ed8"].map((c,i)=>(
+            <div key={i} style={{width:20,height:12,background:c,borderRadius:2}}/>
+          ))}
+          <span>Alto</span>
+        </div>
+      </Box>
+    </div>
+  );
+}
+
+function MensileTab({txs,excInvest}){
+  const agg=useMemo(()=>aggregate(txs,excInvest),[txs,excInvest]);
+  const H=280;
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:16}}>
+      <Box title="Entrate vs Uscite mensili">
+        <ResponsiveContainer width="100%" height={H}>
+          <AreaChart data={agg.monthly}>
+            <defs>
+              <linearGradient id="gE" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#6ee7b7" stopOpacity={0.4}/><stop offset="95%" stopColor="#6ee7b7" stopOpacity={0}/></linearGradient>
+              <linearGradient id="gU" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#fca5a5" stopOpacity={0.4}/><stop offset="95%" stopColor="#fca5a5" stopOpacity={0}/></linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+            <XAxis dataKey="label" tick={{fill:C.muted,fontSize:10}} interval={agg.monthly.length>24?3:0}/>
+            <YAxis tickFormatter={fmtK} tick={{fill:C.muted,fontSize:10}}/>
+            <Tooltip content={<Tip/>}/>
+            <Legend wrapperStyle={{fontSize:12}}/>
+            <Area type="monotone" dataKey="entrate" name="Entrate" stroke="#6ee7b7" fill="url(#gE)" strokeWidth={2} dot={false}/>
+            <Area type="monotone" dataKey="uscite" name="Uscite" stroke="#fca5a5" fill="url(#gU)" strokeWidth={2} dot={false}/>
+          </AreaChart>
+        </ResponsiveContainer>
+      </Box>
+      <Box title="Saldo mensile">
+        <ResponsiveContainer width="100%" height={200}>
+          <BarChart data={agg.monthly}>
+            <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+            <XAxis dataKey="label" tick={{fill:C.muted,fontSize:10}} interval={agg.monthly.length>24?3:0}/>
+            <YAxis tickFormatter={fmtK} tick={{fill:C.muted,fontSize:10}}/>
+            <Tooltip content={<Tip/>}/>
+            <ReferenceLine y={0} stroke="#94a3b8"/>
+            <Bar dataKey="saldo" name="Saldo" radius={[2,2,0,0]}>
+              {agg.monthly.map((_,i)=><Cell key={i} fill={agg.monthly[i].saldo>=0?"#6ee7b7":"#fca5a5"}/>)}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </Box>
+    </div>
+  );
+}
+
+function CategorieTab({txs,excInvest,selYear,selMonth}){
+  const [selCat,setSelCat]=useState(null);
+  const [sortBy,setSortBy]=useState("date"); // "date" | "amount"
+
+  const agg=useMemo(()=>aggregate(txs,excInvest),[txs,excInvest]);
+  const catData=agg.catOut.slice(0,12);
+
+  // ── Serie temporale per categoria selezionata ──────────────────────────────
+  const timeSeries=useMemo(()=>{
+    if(!selCat)return[];
+    const filtered=txs.filter(t=>t.uscita>0&&t.categoria===selCat);
+
+    if(selYear&&selMonth){
+      // Vista GIORNALIERA — tutti i giorni del mese con zeri
+      const daysInMonth=new Date(selYear,selMonth,0).getDate();
+      const byDay={};
+      filtered.filter(t=>t.year===selYear&&t.month===selMonth)
+        .forEach(t=>{const d=+t.date.slice(8,10);byDay[d]=(byDay[d]||0)+t.uscita;});
+      return Array.from({length:daysInMonth},(_,i)=>({
+        label:String(i+1).padStart(2,"0"),
+        value:Math.round((byDay[i+1]||0)*100)/100
+      }));
+    }
+    if(selYear){
+      // Vista MENSILE — tutti i mesi dell'anno con zeri
+      const byMonth={};
+      filtered.filter(t=>t.year===selYear)
+        .forEach(t=>{byMonth[t.month]=(byMonth[t.month]||0)+t.uscita;});
+      return MONTHS_IT.map((m,i)=>({label:m,value:Math.round((byMonth[i+1]||0)*100)/100}));
+    }
+    // Vista ANNUALE — tutti gli anni con zeri
+    const years=[...new Set(txs.map(t=>t.year))].sort();
+    const byYear={};
+    filtered.forEach(t=>{byYear[t.year]=(byYear[t.year]||0)+t.uscita;});
+    return years.map(y=>({label:String(y),value:Math.round((byYear[y]||0)*100)/100}));
+  },[txs,selCat,selYear,selMonth]);
+
+  // ── Tabella record ──────────────────────────────────────────────────────────
+  const tableRows=useMemo(()=>{
+    if(!selCat)return[];
+    const rows=txs.filter(t=>t.uscita>0&&t.categoria===selCat);
+    return sortBy==="date"
+      ?[...rows].sort((a,b)=>b.date.localeCompare(a.date))
+      :[...rows].sort((a,b)=>b.uscita-a.uscita);
+  },[txs,selCat,sortBy]);
+
+  const trendTitle=selCat
+    ?(selYear&&selMonth
+        ?`${selCat} — ogni giorno di ${MONTHS_IT[selMonth-1]} ${selYear}`
+        :selYear
+          ?`${selCat} — ogni mese del ${selYear}`
+          :`${selCat} — ogni anno`)
+    :"";
+
+  const H=Math.max(360,catData.length*30);
+
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:16}}>
+      {selCat&&(
+        <div style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:8,padding:"8px 14px",display:"flex",alignItems:"center",gap:10,fontSize:12}}>
+          <span style={{color:"#3b82f6",fontWeight:700}}>🏷 {selCat}</span>
+          <span style={{color:C.muted}}>selezionata — clicca di nuovo per deselezionare</span>
+          <button onClick={()=>setSelCat(null)} style={{marginLeft:"auto",background:"#dbeafe",color:"#3b82f6",border:"none",borderRadius:5,padding:"3px 10px",cursor:"pointer",fontSize:11,fontWeight:600}}>✕ Deseleziona</button>
+        </div>
+      )}
+
+      {/* Donut + Barre affiancate */}
+      <div className="grid2">
+        <Box title="Distribuzione uscite — clicca per selezionare" minH={440}>
+          <ResponsiveContainer width="100%" height={260}>
+            <PieChart onClick={d=>{
+              if(d?.activePayload?.[0])setSelCat(s=>s===d.activePayload[0].name?null:d.activePayload[0].name);
+            }}>
+              <Pie data={catData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={60} outerRadius={110} paddingAngle={2} style={{cursor:"pointer"}}>
+                {catData.map((_,i)=><Cell key={i} fill={PASTEL[i%PASTEL.length]} opacity={selCat&&catData[i].name!==selCat?0.35:1}/>)}
+              </Pie>
+              <Tooltip formatter={v=>fmt(v)} contentStyle={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,fontSize:12}}/>
+            </PieChart>
+          </ResponsiveContainer>
+          <div style={{display:"flex",flexDirection:"column",gap:5,marginTop:8}}>
+            {catData.map((c,i)=>(
+              <div key={i} onClick={()=>setSelCat(s=>s===c.name?null:c.name)}
+                style={{display:"flex",alignItems:"center",gap:8,fontSize:12,cursor:"pointer",padding:"3px 6px",borderRadius:6,
+                  background:selCat===c.name?"#eff6ff":"transparent",
+                  opacity:selCat&&selCat!==c.name?0.45:1,transition:"all .15s"}}>
+                <div style={{width:8,height:8,borderRadius:2,background:PASTEL[i%PASTEL.length],flexShrink:0}}/>
+                <span style={{flex:1,color:C.muted}}>{c.name}</span>
+                <span style={{fontWeight:700,color:selCat===c.name?"#3b82f6":C.text}}>{fmt(c.value)}</span>
+              </div>
+            ))}
+          </div>
+        </Box>
+
+        <Box title="Totale per categoria — clicca per selezionare" minH={440}>
+          <ResponsiveContainer width="100%" height={H}>
+            <BarChart data={[...catData].reverse()} layout="vertical"
+              onClick={d=>{if(d?.activePayload?.[0])setSelCat(s=>s===d.activePayload[0].payload.name?null:d.activePayload[0].payload.name);}}>
+              <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+              <XAxis type="number" tickFormatter={fmtK} tick={{fill:C.muted,fontSize:10}}/>
+              <YAxis type="category" dataKey="name" width={120} tick={{fill:C.muted,fontSize:10}}/>
+              <Tooltip formatter={v=>fmt(v)} contentStyle={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,fontSize:12}}/>
+              <Bar dataKey="value" name="Totale" radius={[0,3,3,0]} style={{cursor:"pointer"}}>
+                {[...catData].reverse().map((_,i)=>{
+                  const realIdx=catData.length-1-i;
+                  const name=[...catData].reverse()[i].name;
+                  return<Cell key={i} fill={PASTEL[realIdx%PASTEL.length]} opacity={selCat&&name!==selCat?0.35:1}/>;
+                })}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </Box>
+      </div>
+
+      {/* Grafico temporale — solo se categoria selezionata */}
+      {selCat&&(
+        <Box title={`📈 Andamento: ${trendTitle}`}>
+          {selYear&&selMonth&&timeSeries.every(d=>d.value===0)?(
+            <div style={{textAlign:"center",padding:"30px",color:C.faint,fontSize:13}}>
+              Nessuna transazione in {MONTHS_IT[selMonth-1]} {selYear} per questa categoria
+            </div>
+          ):(
+            <ResponsiveContainer width="100%" height={240}>
+              <AreaChart data={timeSeries} margin={{top:10,right:20,left:10,bottom:5}}>
+                <defs>
+                  <linearGradient id="gCat" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#60a5fa" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="#60a5fa" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+                <XAxis dataKey="label" tick={{fill:C.muted,fontSize:10}}
+                  interval={selYear&&selMonth?0:selYear?0:"preserveStartEnd"}/>
+                <YAxis tickFormatter={fmtK} tick={{fill:C.muted,fontSize:10}}/>
+                <Tooltip formatter={v=>fmt(v)}
+                  labelFormatter={l=>selYear&&selMonth?`Giorno ${l}`:selYear?l:l}
+                  contentStyle={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,fontSize:12}}/>
+                <Area type="monotone" dataKey="value" name={selCat}
+                  stroke="#60a5fa" fill="url(#gCat)" strokeWidth={2.5}
+                  dot={timeSeries.length<=31?{fill:"#60a5fa",r:3}:false}
+                  activeDot={{r:5}}/>
+              </AreaChart>
+            </ResponsiveContainer>
+          )}
+        </Box>
+      )}
+
+      {/* Tabella record — solo se categoria selezionata */}
+      {selCat&&tableRows.length>0&&(
+        <Box title={`📋 Transazioni: ${selCat} (${tableRows.length} record)`}>
+          <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"center",flexWrap:"wrap"}}>
+            <span style={{fontSize:11,color:C.muted,fontWeight:600}}>Ordina per:</span>
+            <button onClick={()=>setSortBy("date")} style={{background:sortBy==="date"?"#60a5fa":"transparent",color:sortBy==="date"?"#fff":C.muted,border:`1px solid ${sortBy==="date"?"#60a5fa":C.border}`,borderRadius:5,padding:"3px 10px",cursor:"pointer",fontSize:11}}>Data ↓</button>
+            <button onClick={()=>setSortBy("amount")} style={{background:sortBy==="amount"?"#60a5fa":"transparent",color:sortBy==="amount"?"#fff":C.muted,border:`1px solid ${sortBy==="amount"?"#60a5fa":C.border}`,borderRadius:5,padding:"3px 10px",cursor:"pointer",fontSize:11}}>Importo ↓</button>
+            <span style={{marginLeft:"auto",fontSize:11,color:C.faint}}>Totale: <strong style={{color:C.text}}>{fmt(tableRows.reduce((s,t)=>s+t.uscita,0))}</strong></span>
+          </div>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+              <thead>
+                <tr style={{borderBottom:`2px solid ${C.border}`,background:"#f8fafc"}}>
+                  {["Data","Fornitore","Descrizione","Importo"].map(h=>(
+                    <th key={h} style={{textAlign:"left",padding:"8px 10px",color:C.muted,fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:0.8,whiteSpace:"nowrap"}}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {tableRows.map((t,i)=>(
+                  <tr key={i} style={{borderBottom:`1px solid ${C.border}`}}
+                    onMouseEnter={e=>e.currentTarget.style.background="#f8fafc"}
+                    onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                    <td style={{padding:"8px 10px",color:C.muted,whiteSpace:"nowrap",fontSize:11}}>{t.date}</td>
+                    <td style={{padding:"8px 10px",color:C.text,fontWeight:500,whiteSpace:"nowrap"}}>{t.vendor||"—"}</td>
+                    <td style={{padding:"8px 10px",color:C.faint,maxWidth:300,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.descrizione}</td>
+                    <td style={{padding:"8px 10px",color:"#ef4444",fontWeight:700,whiteSpace:"nowrap",textAlign:"right"}}>{fmt(t.uscita)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Box>
+      )}
+    </div>
+  );
+}
+
+function FornitoriTab({allTxs,filteredTxs,selYear,selMonth}){
+  const [catFilter,setCatFilter]=useState("");
+  const [selVendor,setSelVendor]=useState(null);
+  const [showInvest,setShowInvest]=useState(false);
+  const categories=useMemo(()=>[...new Set(allTxs.filter(t=>t.uscita>0&&t.categoria!=="📈 Investimenti").map(t=>t.categoria))].sort(),[allTxs]);
+  const vendors=useMemo(()=>{
+    let base=catFilter?filteredTxs.filter(t=>t.categoria===catFilter):filteredTxs;
+    if(!showInvest)base=base.filter(t=>t.categoria!=="📈 Investimenti");
+    return aggregateVendors(base,"").slice(0,20);
+  },[filteredTxs,catFilter]);
+  const vendorTrend=useMemo(()=>{
+    if(!selVendor)return[];
+    const base=catFilter?allTxs.filter(t=>t.categoria===catFilter):allTxs;
+    const vendorTxs=base.filter(t=>t.uscita>0&&(t.vendor||(extractAndClassify(t.causale,t.descrizione,rulesGet()).vendor))===selVendor);
+    if(selYear&&selMonth){
+      // Vista giornaliera: giorni del mese selezionato
+      const byDay={};
+      vendorTxs.filter(t=>t.year===selYear&&t.month===selMonth).forEach(t=>{
+        byDay[t.date]=(byDay[t.date]||0)+t.uscita;
+      });
+      return Object.entries(byDay).sort().map(([date,v])=>({
+        label:date.slice(8,10)+"/"+MONTHS_IT[+date.slice(5,7)-1],
+        value:Math.round(v)
+      }));
+    } else if(selYear){
+      // Vista mensile: mesi dell'anno selezionato
+      const byYm={};
+      vendorTxs.filter(t=>t.year===selYear).forEach(t=>{
+        byYm[t.ym]=(byYm[t.ym]||0)+t.uscita;
+      });
+      return Object.entries(byYm).sort().map(([ym,v])=>({label:fmtYm(ym),value:Math.round(v)}));
+    } else {
+      // Vista tutto: mensile su tutti gli anni
+      const byYm={};
+      vendorTxs.forEach(t=>{byYm[t.ym]=(byYm[t.ym]||0)+t.uscita;});
+      return Object.entries(byYm).sort().map(([ym,v])=>({label:fmtYm(ym),value:Math.round(v)}));
+    }
+  },[allTxs,selVendor,catFilter,selYear,selMonth]);
+  const vendorTotale=vendors.find(v=>v.name===selVendor);
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:16}}>
+      {/* Category filter */}
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+        <span style={{fontSize:12,color:C.muted,fontWeight:600,marginRight:4}}>Categoria:</span>
+        <Pill active={catFilter===""} onClick={()=>{setCatFilter("");setSelVendor(null);}}>Tutte</Pill>
+        {categories.filter(c=>showInvest||c!=="📈 Investimenti").map(c=>(
+          <Pill key={c} active={catFilter===c} onClick={()=>{setCatFilter(catFilter===c?"":c);setSelVendor(null);}}>{c}</Pill>
+        ))}
+        <label style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",marginLeft:"auto",fontSize:11,color:C.muted,whiteSpace:"nowrap"}}>
+          <input type="checkbox" checked={showInvest} onChange={e=>setShowInvest(e.target.checked)}/> Mostra investimenti
+        </label>
+      </div>
+      <div className="grid2">
+        {/* Top vendors bar */}
+        <Box title={`Top fornitori${catFilter?` — ${catFilter}`:""}`} minH={460}>
+          <p style={{fontSize:11,color:C.muted,marginBottom:10}}>Clicca una barra per vedere il trend nel tempo</p>
+          <ResponsiveContainer width="100%" height={Math.max(380,vendors.length*22)}>
+            <BarChart data={[...vendors].reverse()} layout="vertical"
+              onClick={d=>d?.activePayload&&setSelVendor(d.activePayload[0]?.payload?.name)}>
+              <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+              <XAxis type="number" tickFormatter={fmtK} tick={{fill:C.muted,fontSize:10}}/>
+              <YAxis type="category" dataKey="name" width={150} tick={{fill:C.muted,fontSize:10}}/>
+              <Tooltip formatter={v=>fmt(v)} contentStyle={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,fontSize:12}}/>
+              <Bar dataKey="total" name="Totale speso" radius={[0,3,3,0]} cursor="pointer">
+                {[...vendors].reverse().map((_,i)=>(
+                  <Cell key={i}
+                    fill={[...vendors].reverse()[i]?.name===selVendor?"#60a5fa":PASTEL[i%PASTEL.length]}
+                    opacity={selVendor&&[...vendors].reverse()[i]?.name!==selVendor?0.5:1}
+                  />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </Box>
+        {/* Vendor trend */}
+        <Box title={selVendor?(selYear&&selMonth?`Andamento giornaliero ${MONTHS_IT[selMonth-1]} ${selYear}: ${selVendor}`:selYear?`Andamento ${selYear}: ${selVendor}`:`Andamento storico: ${selVendor}`):"← Seleziona un fornitore"} minH={460}>
+          {!selVendor?(
+            <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:200,color:C.faint,fontSize:13,textAlign:"center",flexDirection:"column",gap:8}}>
+              <div style={{fontSize:32}}>👈</div>
+              <div>Clicca una barra del grafico<br/>di sinistra per vedere il trend</div>
+            </div>
+          ):(
+            <>
+              {vendorTotale&&(
+                <div style={{display:"flex",gap:12,marginBottom:14,flexWrap:"wrap"}}>
+                  <div style={{background:"#eff6ff",borderRadius:8,padding:"8px 14px",fontSize:12}}>
+                    <span style={{color:C.muted}}>Totale: </span>
+                    <strong style={{color:"#3b82f6"}}>{fmt(vendorTotale.total)}</strong>
+                  </div>
+                  <div style={{background:"#f0fdf4",borderRadius:8,padding:"8px 14px",fontSize:12}}>
+                    <span style={{color:C.muted}}>Operazioni: </span>
+                    <strong style={{color:"#10b981"}}>{vendorTotale.count}</strong>
+                  </div>
+                  <div style={{background:"#fefce8",borderRadius:8,padding:"8px 14px",fontSize:12}}>
+                    <span style={{color:C.muted}}>Media/volta: </span>
+                    <strong style={{color:"#ca8a04"}}>{fmt(vendorTotale.total/vendorTotale.count)}</strong>
+                  </div>
+                </div>
+              )}
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart data={vendorTrend}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+                  <XAxis dataKey="label" tick={{fill:C.muted,fontSize:9}} interval={vendorTrend.length>24?3:0}/>
+                  <YAxis tickFormatter={fmtK} tick={{fill:C.muted,fontSize:10}}/>
+                  <Tooltip content={<Tip/>}/>
+                  <Bar dataKey="value" name="Speso" fill="#93c5fd" radius={[2,2,0,0]}/>
+                </BarChart>
+              </ResponsiveContainer>
+              {vendorTrend.length>0&&(
+                <div style={{marginTop:10}}>
+                  <p style={{fontSize:11,color:C.muted,marginBottom:8,fontWeight:600}}>DETTAGLIO MENSILE</p>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                    <p style={{fontSize:10,color:C.faint,marginBottom:6,fontWeight:600}}>
+                {selYear&&selMonth?`GIORNI DI ${MONTHS_IT[selMonth-1].toUpperCase()} ${selYear}`:selYear?`MESI DEL ${selYear}`:"ULTIMI 12 MESI"}
+              </p>
+              {vendorTrend.slice(-12).map((d,i)=>(
+                      <div key={i} style={{background:"#f8fafc",border:`1px solid ${C.border}`,borderRadius:6,padding:"4px 8px",fontSize:11,textAlign:"center"}}>
+                        <div style={{color:C.faint,fontSize:9}}>{d.label}</div>
+                        <div style={{color:C.text,fontWeight:700}}>{fmtKS(d.value)}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </Box>
+      </div>
+    </div>
+  );
+}
+
+function InvestimentiTab({txs}){
+  const pnl=useMemo(()=>investPnL(txs),[txs]);
+  const pnlNet=pnl.totalIn-pnl.totalOut;
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:16}}>
+      <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+        <Card label="Acquistato"   value={fmt(pnl.totalOut)} sub="uscite per asset"   color="#fca5a5" icon="📉"/>
+        <Card label="Rientrato"    value={fmt(pnl.totalIn)}  sub="entrate da vendite" color="#6ee7b7" icon="📈"/>
+        <Card label="P&L Realizz." value={fmt(Math.abs(pnlNet))} sub={pnlNet>=0?"plusvalenza":"minusvalenza"} color={pnlNet>=0?"#6ee7b7":"#fca5a5"} icon={pnlNet>=0?"✅":"⚠️"}/>
+        <Card label="Operazioni"   value={pnl.count} sub="transazioni" color="#c4b5fd" icon="🔢"/>
+      </div>
+      <Box title="Acquisti vs Vendite per Anno">
+        <ResponsiveContainer width="100%" height={260}>
+          <BarChart data={pnl.byYear}>
+            <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+            <XAxis dataKey="year" tick={{fill:C.muted,fontSize:11}}/>
+            <YAxis tickFormatter={fmtK} tick={{fill:C.muted,fontSize:10}}/>
+            <Tooltip content={<Tip/>}/>
+            <Legend wrapperStyle={{fontSize:12}}/>
+            <Bar dataKey="acquisti" name="Acquisti" fill="#fca5a5" radius={[3,3,0,0]}/>
+            <Bar dataKey="vendite"  name="Vendite"  fill="#6ee7b7" radius={[3,3,0,0]}/>
+          </BarChart>
+        </ResponsiveContainer>
+      </Box>
+      <Box title="Nota">
+        <p style={{color:C.muted,fontSize:13,lineHeight:1.7}}>
+          Il P&amp;L mostrato è il <strong>flusso di cassa realizzato</strong>: vendite meno acquisti registrati.
+          Non include asset ancora in portafoglio né plusvalenze latenti.
+        </p>
+      </Box>
+    </div>
+  );
+}
+
+
+// ── RULES EDITOR ─────────────────────────────────────────────────────────────
+function RulesTab({gsUrl,txs,onRulesChange}){
+  const [rules,setRules]=useState(()=>rulesGet());
+  const [apiKey,setApiKey]=useState(()=>apiKeyGet());
+  const [classifying,setClassifying]=useState(false);
+  const [classifyStatus,setClassifyStatus]=useState("");
+  const [pattern,setPattern]=useState("");
+  const [name,setName]=useState("");
+  const [cat,setCat]=useState(()=>catsGet()[0]||"Supermercato");
+  // Category management state
+  const [cats,setCats]=useState(()=>catsGet());
+  const [editCat,setEditCat]=useState(null);   // name being edited
+  const [editName,setEditName]=useState("");
+  const [newCatName,setNewCatName]=useState("");
+  const [activeSection,setActiveSection]=useState("cats");
+  const [syncStatus,setSyncStatus]=useState("");
+
+  // Sync da Sheets ogni volta che si apre il tab Regole
+  useEffect(()=>{
+    if(!gsUrl)return;
+    setSyncStatus("Carico impostazioni...");
+    settingsPull(gsUrl).then(ok=>{
+      if(ok){
+        // Ricarica stato locale dopo pull
+        setCats(catsGet());
+        setRules(rulesGet());
+        setSyncStatus("Sincronizzato ✓");
+      } else {
+        setSyncStatus("Sheets non raggiungibile");
+      }
+      setTimeout(()=>setSyncStatus(""),2500);
+    });
+  },[gsUrl]);
+
+  async function classifyAll(txsData){
+    if(!apiKey.trim()){setClassifyStatus("❌ Inserisci la tua API key Anthropic (sotto)");return;}
+    setClassifying(true);
+    // Trova vendor unici non già mappati
+    const userRules=rulesGet();
+    const knownPatterns=[...CHAIN_MAP.map(([rx])=>rx),...userRules.map(r=>{try{return new RegExp(r.pattern,"i")}catch{return null}}).filter(Boolean)];
+    const allVendors=[...new Set((txsData||txs||[]).filter(t=>t.vendor&&t.uscita>0).map(t=>t.vendor))];
+    const unknown=allVendors.filter(v=>!knownPatterns.some(rx=>rx.test(v))&&v!=="N/D"&&v.length>2);
+    if(!unknown.length){setClassifyStatus("✅ Tutti i vendor sono già classificati!");setClassifying(false);setTimeout(()=>setClassifyStatus(""),3000);return;}
+    setClassifyStatus(`🤖 Classifico ${unknown.length} vendor sconosciuti...`);
+    const BATCH=30;
+    let added=0;
+    try{
+      for(let i=0;i<unknown.length;i+=BATCH){
+        const batch=unknown.slice(i,i+BATCH);
+        setClassifyStatus(`🤖 Batch ${Math.floor(i/BATCH)+1}/${Math.ceil(unknown.length/BATCH)} (${i+1}-${Math.min(i+BATCH,unknown.length)} di ${unknown.length})...`);
+        const results=await classifyWithClaude(batch,catsGet(),apiKey);
+        const newRules=[...rulesGet()];
+        results.forEach(({vendor,category})=>{
+          if(vendor&&category&&catsGet().includes(category)){
+            const escaped=vendor.replace(/[^a-zA-Z0-9 ]/g,c=>"\\"+c);
+            newRules.push({id:Date.now().toString()+Math.random(),pattern:escaped,name:vendor,category});
+            added++;
+          }
+        });
+        rulesSave(newRules);setRules(newRules);
+      }
+      await notify();
+      setClassifyStatus(`✅ ${added} vendor classificati con Claude!`);
+    }catch(e){
+      setClassifyStatus(`❌ Errore: ${e.message}`);
+    }
+    setClassifying(false);setTimeout(()=>setClassifyStatus(""),8000);
+  }
+
+  async function notify(){
+    onRulesChange();
+    // Auto-save to Sheets
+    if(gsUrl){
+      setSyncStatus("Salvataggio...");
+      const ok=await settingsPush(gsUrl).then(()=>true).catch(()=>false);
+      setSyncStatus(ok?"Salvato su Sheets ✓":"Solo locale (aggiorna Apps Script)");
+      setTimeout(()=>setSyncStatus(""),3000);
+    }
+  }
+
+  // ── Category functions ────────────────────────────────────────────────────
+  function addCat(){
+    const n=newCatName.trim();
+    if(!n||cats.includes(n))return;
+    const upd=[...cats,n];setCats(upd);catsSave(upd);setNewCatName("");notify();
+  }
+  function startEdit(c){setEditCat(c);setEditName(c);}
+  function confirmRename(){
+    const newN=editName.trim();
+    if(!newN||newN===editCat){setEditCat(null);return;}
+    const a={...aliasGet()};
+    // Chain existing aliases
+    Object.keys(a).forEach(k=>{if(a[k]===editCat)a[k]=newN;});
+    a[editCat]=newN;
+    aliasSave(a);
+    const upd=cats.map(c=>c===editCat?newN:c);setCats(upd);catsSave(upd);
+    rulesSave(rulesGet().map(r=>r.category===editCat?{...r,category:newN}:r));
+    setRules(rulesGet());
+    setEditCat(null);notify();
+  }
+  function deleteCat(c){
+    if(!window.confirm(`Eliminare la categoria "${c}"?
+Tutte le transazioni verranno spostate in "Altro".`))return;
+    const a={...aliasGet()};a[c]="Altro";aliasSave(a);
+    const upd=cats.filter(x=>x!==c);setCats(upd);catsSave(upd);
+    rulesSave(rulesGet().map(r=>r.category===c?{...r,category:"Altro"}:r));
+    setRules(rulesGet());notify();
+  }
+  function resetCats(){
+    if(!window.confirm("Ripristinare le categorie predefinite?"))return;
+    catsSave([...CATS]);aliasSave({});setCats([...CATS]);notify();
+  }
+
+  // ── Rule functions ────────────────────────────────────────────────────────
+  function addRule(){
+    if(!pattern.trim())return;
+    const r=[...rules,{id:Date.now().toString(),pattern:pattern.trim(),name:name.trim()||null,category:cat}];
+    setRules(r);rulesSave(r);notify();setPattern("");setName("");
+  }
+  function delRule(id){
+    const r=rules.filter(x=>x.id!==id);
+    setRules(r);rulesSave(r);notify();
+  }
+
+  const SectionBtn=({id,label})=>(
+    <button onClick={()=>setActiveSection(id)} style={{padding:"7px 14px",border:`1px solid ${activeSection===id?"#60a5fa":C.border}`,background:activeSection===id?"#60a5fa":"transparent",color:activeSection===id?"#fff":C.muted,borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:activeSection===id?700:400}}>{label}</button>
+  );
+
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:16}}>
+      {/* Section nav */}
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+        <SectionBtn id="cats" label="🏷 Categorie"/>
+        <SectionBtn id="rules" label="🔧 Regole fornitore"/>
+        <SectionBtn id="builtins" label="📋 Mappa automatica"/>
+        {syncStatus&&<span style={{marginLeft:"auto",fontSize:11,color:"#16a34a",display:"flex",alignItems:"center",gap:4}}>☁️ {syncStatus}</span>}
+      </div>
+
+      {/* ── CATEGORIE ── */}
+      {activeSection==="cats"&&(<>
+        <Box title="Le tue categorie">
+          <p style={{fontSize:12,color:C.muted,marginBottom:14,lineHeight:1.6}}>
+            Crea, rinomina o elimina categorie. Le modifiche si applicano a tutte le transazioni e vengono salvate su Google Sheets.
+            <br/><strong>Nota:</strong> dopo aver modificato, usa <strong>♻️ Tutto</strong> per ricalcolare le categorie delle transazioni esistenti.
+          </p>
+          {/* Category list */}
+          <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:16}}>
+            {cats.map((c,i)=>(
+              <div key={c} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",background:"#f8fafc",borderRadius:8,border:`1px solid ${C.border}`}}>
+                <div style={{width:10,height:10,borderRadius:3,background:PASTEL[i%PASTEL.length],flexShrink:0}}/>
+                {editCat===c?(
+                  <input value={editName} onChange={e=>setEditName(e.target.value)}
+                    onKeyDown={e=>{if(e.key==="Enter")confirmRename();if(e.key==="Escape")setEditCat(null);}}
+                    autoFocus style={{flex:1,padding:"4px 8px",border:`2px solid #60a5fa`,borderRadius:5,fontSize:13}}/>
+                ):(
+                  <span style={{flex:1,fontSize:13,fontWeight:500}}>{c}</span>
+                )}
+                {editCat===c?(
+                  <>
+                    <button onClick={confirmRename} style={{background:"#4ade80",color:"#fff",border:"none",borderRadius:5,padding:"4px 10px",cursor:"pointer",fontSize:12,fontWeight:600}}>✓</button>
+                    <button onClick={()=>setEditCat(null)} style={{background:C.border,color:C.muted,border:"none",borderRadius:5,padding:"4px 10px",cursor:"pointer",fontSize:12}}>✕</button>
+                  </>
+                ):(
+                  <>
+                    <button onClick={()=>startEdit(c)} style={{background:"#eff6ff",color:"#3b82f6",border:"1px solid #bfdbfe",borderRadius:5,padding:"3px 10px",cursor:"pointer",fontSize:11}}>✏️ Rinomina</button>
+                    <button onClick={()=>deleteCat(c)} style={{background:"#fee2e2",color:"#dc2626",border:"none",borderRadius:5,padding:"3px 10px",cursor:"pointer",fontSize:11}}>🗑</button>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+          {/* Add new category */}
+          <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+            <input value={newCatName} onChange={e=>setNewCatName(e.target.value)}
+              onKeyDown={e=>e.key==="Enter"&&addCat()}
+              placeholder="Nuova categoria..."
+              style={{flex:1,minWidth:160,padding:"8px 12px",border:`1px solid ${C.border}`,borderRadius:6,fontSize:13}}/>
+            <button onClick={addCat} style={{background:"#60a5fa",color:"#fff",border:"none",borderRadius:6,padding:"8px 18px",cursor:"pointer",fontWeight:700,fontSize:13}}>+ Aggiungi</button>
+            <button onClick={resetCats} style={{background:"#f1f5f9",color:C.muted,border:`1px solid ${C.border}`,borderRadius:6,padding:"8px 14px",cursor:"pointer",fontSize:12}}>↺ Ripristina default</button>
+          </div>
+        </Box>
+      </>)}
+
+      {/* ── REGOLE FORNITORE ── */}
+      {activeSection==="rules"&&(<>
+        {/* Claude AI Classification */}
+        <Box title="🤖 Classificazione automatica con Claude AI">
+          <p style={{fontSize:12,color:C.muted,marginBottom:12,lineHeight:1.6}}>
+            Analizza tutti i vendor non ancora mappati e li categorizza automaticamente usando Claude AI.<br/>
+            Serve una <strong>API key Anthropic</strong> (gratuita con $5 di crediti): <a href="https://console.anthropic.com" target="_blank" style={{color:"#60a5fa"}}>console.anthropic.com</a>
+          </p>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:10}}>
+            <input value={apiKey} onChange={e=>{setApiKey(e.target.value);apiKeySave(e.target.value);}}
+              type="password" placeholder="sk-ant-..."
+              style={{flex:1,minWidth:200,padding:"8px 12px",border:`1px solid ${C.border}`,borderRadius:6,fontSize:13,fontFamily:"monospace"}}/>
+            <button onClick={()=>classifyAll(txs||[])} disabled={classifying||!apiKey.trim()}
+              style={{background:classifying||!apiKey.trim()?"#e2e8f0":"#8b5cf6",color:classifying||!apiKey.trim()?C.muted:"#fff",border:"none",borderRadius:6,padding:"8px 18px",cursor:classifying||!apiKey.trim()?"not-allowed":"pointer",fontWeight:700,fontSize:13}}>
+              {classifying?"⏳ Classifico...":"🤖 Classifica vendor sconosciuti"}
+            </button>
+          </div>
+          {classifyStatus&&<div style={{fontSize:12,color:classifyStatus.startsWith("❌")?"#ef4444":"#10b981",fontWeight:600}}>{classifyStatus}</div>}
+          <p style={{fontSize:10,color:C.faint,marginTop:8}}>La API key è salvata solo nel tuo browser, non viene mai condivisa.</p>
+        </Box>
+        {/* Add rule form */}
+        <Box title="Aggiungi regola manuale personalizzata">
+        <p style={{fontSize:12,color:C.muted,marginBottom:12,lineHeight:1.6}}>
+          Le regole personalizzate hanno <strong>priorità</strong> sulla mappa automatica delle catene.<br/>
+          <strong>Pattern</strong>: parola o frase da cercare nel nome del fornitore estratto (case-insensitive).<br/>
+          <strong>Nome visualizzato</strong>: opzionale — se vuoto usa il nome estratto.<br/>
+          <strong>Categoria</strong>: categoria da assegnare.
+        </p>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end"}}>
+          <div style={{flex:"2 1 160px"}}>
+            <div style={{fontSize:11,color:C.muted,marginBottom:4,fontWeight:600}}>Pattern (es: acella, multienergia...)</div>
+            <input value={pattern} onChange={e=>setPattern(e.target.value)} placeholder="parola chiave"
+              style={{width:"100%",padding:"8px 10px",border:`1px solid ${C.border}`,borderRadius:6,fontSize:13}}/>
+          </div>
+          <div style={{flex:"2 1 160px"}}>
+            <div style={{fontSize:11,color:C.muted,marginBottom:4,fontWeight:600}}>Nome visualizzato (opz.)</div>
+            <input value={name} onChange={e=>setName(e.target.value)} placeholder="es: Acella Dennis"
+              style={{width:"100%",padding:"8px 10px",border:`1px solid ${C.border}`,borderRadius:6,fontSize:13}}/>
+          </div>
+          <div style={{flex:"1 1 140px"}}>
+            <div style={{fontSize:11,color:C.muted,marginBottom:4,fontWeight:600}}>Categoria</div>
+            <select value={cat} onChange={e=>setCat(e.target.value)}
+              style={{width:"100%",padding:"8px 10px",border:`1px solid ${C.border}`,borderRadius:6,fontSize:13}}>
+              {cats.map(c=><option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <button onClick={addRule} style={{background:"#60a5fa",color:"#fff",border:"none",borderRadius:6,padding:"9px 18px",cursor:"pointer",fontWeight:700,fontSize:13,flexShrink:0}}>
+            + Aggiungi
+          </button>
+        </div>
+      </Box>
+
+      {/* Custom rules table */}
+      <Box title={`Regole personalizzate (${rules.length})`}>
+        {rules.length===0?(
+          <p style={{color:C.faint,fontSize:13,padding:"20px 0",textAlign:"center"}}>Nessuna regola personalizzata. La mappa automatica è attiva.</p>
+        ):(
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+            <thead>
+              <tr style={{borderBottom:`2px solid ${C.border}`}}>
+                {["Pattern","Nome","Categoria",""].map(h=><th key={h} style={{textAlign:"left",padding:"8px 10px",color:C.muted,fontSize:11,fontWeight:700,textTransform:"uppercase"}}>{h}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {rules.map(r=>(
+                <tr key={r.id} style={{borderBottom:`1px solid ${C.border}`}}
+                  onMouseEnter={e=>e.currentTarget.style.background="#f8fafc"}
+                  onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                  <td style={{padding:"9px 10px",fontFamily:"monospace",color:"#7c3aed"}}>{r.pattern}</td>
+                  <td style={{padding:"9px 10px",color:C.text}}>{r.name||<span style={{color:C.faint}}>(usa nome estratto)</span>}</td>
+                  <td style={{padding:"9px 10px"}}><span style={{background:"#eff6ff",color:"#3b82f6",borderRadius:4,padding:"2px 8px",fontSize:11,fontWeight:600}}>{r.category}</span></td>
+                  <td style={{padding:"9px 10px"}}><button onClick={()=>delRule(r.id)} style={{background:"#fee2e2",color:"#dc2626",border:"none",borderRadius:4,padding:"3px 10px",cursor:"pointer",fontSize:12}}>✕</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Box>
+
+      </>)}
+
+      {/* ── MAPPA AUTOMATICA ── */}
+      {activeSection==="builtins"&&(<>
+      <Box title="Mappa automatica integrata (sola lettura — 50 catene)">
+        <p style={{fontSize:12,color:C.muted,marginBottom:10}}>Queste regole sono applicate automaticamente dopo le tue regole personalizzate.</p>
+        <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+          {CHAIN_MAP.map(([,nm,cat],i)=>(nm&&
+            <span key={i} style={{background:"#f1f5f9",border:`1px solid ${C.border}`,borderRadius:20,padding:"3px 10px",fontSize:11,color:C.muted}}>
+              {nm} <span style={{color:"#60a5fa"}}>→ {cat}</span>
+            </span>
+          ))}
+        </div>
+      </Box>
+      </>)}
+
+    </div>
+  );
+}
+
+// ── SETUP ─────────────────────────────────────────────────────────────────────
+function Setup({onSave}){
+  const [url,setUrl]=useState(localStorage.getItem("gsUrl")||"");
+  const [step,setStep]=useState(1);
+  return(
+    <div style={{maxWidth:640,margin:"0 auto",padding:"28px 16px"}}>
+      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:24}}>
+        <h2 style={{marginTop:0,fontSize:19}}>⚙️ Configurazione</h2>
+        <div style={{display:"flex",gap:8,marginBottom:22}}>
+          {[1,2,3].map(s=>(<button key={s} onClick={()=>setStep(s)} style={{flex:1,padding:"9px 0",border:`2px solid ${step===s?"#60a5fa":C.border}`,borderRadius:8,background:step===s?"#60a5fa":C.card,color:step===s?"#fff":C.muted,cursor:"pointer",fontWeight:600,fontSize:13}}>Passo {s}</button>))}
+        </div>
+        {step===1&&(<div>
+          <h3 style={{marginTop:0}}>1. Foglio Google</h3>
+          <ol style={{color:C.muted,lineHeight:2.4,paddingLeft:20,fontSize:14}}>
+            <li>Vai su <a href="https://sheets.google.com" target="_blank" style={{color:"#3b82f6",fontWeight:600}}>sheets.google.com</a> e crea/apri un foglio</li>
+          </ol>
+          <button onClick={()=>setStep(2)} style={{background:"#60a5fa",color:"#fff",border:"none",borderRadius:8,padding:"10px 22px",cursor:"pointer",fontWeight:700,fontSize:14,marginTop:12}}>Fatto → Passo 2</button>
+        </div>)}
+        {step===2&&(<div>
+          <h3 style={{marginTop:0}}>2. Apps Script</h3>
+          <ol style={{color:C.muted,lineHeight:2.0,paddingLeft:20,fontSize:14,marginBottom:10}}>
+            <li>Nel foglio → <strong>Strumenti → Editor di script</strong></li>
+            <li><strong>Cancella tutto</strong> e incolla questo codice:</li>
+          </ol>
+          <pre style={{background:"#f8fafc",border:`1px solid ${C.border}`,borderRadius:8,padding:12,fontSize:10,overflowX:"auto",maxHeight:220,color:"#334155",lineHeight:1.6,marginBottom:10}}>{SCRIPT_CODE}</pre>
+          <ol start={3} style={{color:C.muted,lineHeight:2.0,paddingLeft:20,fontSize:14}}>
+            <li>💾 Salva → <strong>Distribuisci → Gestisci distribuzioni</strong></li>
+            <li>✏️ Modifica → <strong>Nuova versione</strong> → <strong>Distribuisci</strong></li>
+          </ol>
+          <button onClick={()=>setStep(3)} style={{background:"#60a5fa",color:"#fff",border:"none",borderRadius:8,padding:"10px 22px",cursor:"pointer",fontWeight:700,fontSize:14,marginTop:8}}>Fatto → Passo 3</button>
+        </div>)}
+        {step===3&&(<div>
+          <h3 style={{marginTop:0}}>3. Incolla l'URL</h3>
+          <input value={url} onChange={e=>setUrl(e.target.value)} placeholder="https://script.google.com/macros/s/..."
+            style={{width:"100%",padding:"12px",border:`2px solid ${url?"#60a5fa":C.border}`,borderRadius:8,fontSize:13,marginBottom:14}}/>
+          <button onClick={()=>url.trim()&&onSave(url.trim())} disabled={!url.trim()}
+            style={{background:url.trim()?"#4ade80":"#d1fae5",color:url.trim()?"#fff":"#6ee7b7",border:"none",borderRadius:8,padding:"13px",cursor:url.trim()?"pointer":"default",fontWeight:700,fontSize:15,width:"100%"}}>
+            ✅ Avvia
+          </button>
+        </div>)}
+      </div>
+    </div>
+  );
+}
+
+// ── MAIN ──────────────────────────────────────────────────────────────────────
+function App(){
+  const [url,setUrl]=useState(null);
+  const [txs,setTxs]=useState([]);
+  const [syncing,setSyncing]=useState(false);
+  const [msg,setMsg]=useState("");
+  const [tab,setTab]=useState("panoramica");
+  const [excInvest,setExcInvest]=useState(false);
+  const [selYear,setSelYear]=useState(null);
+  const [selMonth,setSelMonth]=useState(null);
+  const [setup,setSetup]=useState(false);
+  const [ready,setReady]=useState(false);
+  const [rulesRev,setRulesRev]=useState(0); // bumped when rules change to trigger re-parse
+
+  useEffect(()=>{
+    const saved=localStorage.getItem("gsUrl");
+    const local=lsGet();
+    if(local.length>0)setTxs(local);
+    if(saved){
+      setUrl(saved);
+      // Prima carica le impostazioni da Sheets, poi i dati
+      settingsPull(saved).then(()=>syncFrom(saved,local.length));
+    }
+    else setSetup(true);
+    setReady(true);
+  },[]);
+
+  async function syncFrom(u,localCount){
+    setSyncing(true);setMsg("🔄 Sincronizzo con Google Sheets...");
+    try{const rows=await gsRead(u);if(rows.length>=localCount){setTxs(rows);lsSave(rows);}setMsg("");}
+    catch{setMsg(localCount>0?"⚠️ Sheets offline — uso dati locali.":"❌ Connessione fallita.");setTimeout(()=>setMsg(""),5000);}
+    setSyncing(false);
+  }
+  function handleSaveUrl(u){localStorage.setItem("gsUrl",u);setUrl(u);setSetup(false);syncFrom(u,0);}
+
+  // Analizza file CSV selezionati e ritorna le righe parsate
+  async function parseFiles(files){
+    let rows=[];
+    for(const f of files){const txt=await f.text();rows.push(...parseCSV(txt));}
+    return rows;
+  }
+
+  // Modalità 1: Aggiungi — salta i duplicati (comportamento normale)
+  async function handleUpload(e){
+    const files=Array.from(e.target.files);
+    if(!files.length)return;
+    setMsg(`⏳ Leggo ${files.length} file...`);
+    const newRows=await parseFiles(files);
+    const existKeys=new Set(txs.map(t=>`${t.date}|${t.uscita}|${t.entrata}|${t.causale}`));
+    const toAdd=newRows.filter(t=>!existKeys.has(`${t.date}|${t.uscita}|${t.entrata}|${t.causale}`));
+    if(!toAdd.length){setMsg("ℹ️ Nessuna transazione nuova (duplicati già presenti).");setTimeout(()=>setMsg(""),4000);return;}
+    const merged=[...txs,...toAdd].sort((a,b)=>a.date.localeCompare(b.date));
+    setTxs(merged);lsSave(merged);
+    setMsg(`✅ ${toAdd.length} nuove transazioni! Sync Sheets...`);
+    setSyncing(true);
+    try{
+      await gsWrite(url,toAdd,(done,tot,rows)=>setMsg(`☁️ Google Sheets: ${done}/${tot} blocchi · ${Math.round(done/tot*100)}%`));
+      setMsg(`✅ ${toAdd.length} aggiunte · ${merged.length} totali.`);
+    }catch{setMsg("⚠️ Visibili ma non sincronizzati con Sheets.");}
+    setSyncing(false);setTimeout(()=>setMsg(""),6000);e.target.value="";
+  }
+
+  // Modalità 2: Sostituisci periodo — rimuove i dati nel range del file e reinserisce
+  async function handleReplaceByPeriod(e){
+    const files=Array.from(e.target.files);
+    if(!files.length)return;
+    setMsg(`⏳ Analizzo ${files.length} file...`);
+    const newRows=await parseFiles(files);
+    if(!newRows.length){setMsg("❌ Nessuna riga valida nei file.");setTimeout(()=>setMsg(""),3000);return;}
+    // Calcola il range di date coperto dai nuovi file
+    const newDates=newRows.map(r=>r.date).sort();
+    const minDate=newDates[0], maxDate=newDates[newDates.length-1];
+    const removed=txs.filter(t=>t.date>=minDate&&t.date<=maxDate).length;
+    if(!window.confirm(`Sostituirò le ${removed} transazioni esistenti nel periodo ${minDate} → ${maxDate} con i dati dei ${files.length} file selezionati (${newRows.length} righe).\n\nContinuare?`)){e.target.value="";return;}
+    // Rimuove il periodo e reinserisce
+    const outside=txs.filter(t=>t.date<minDate||t.date>maxDate);
+    const merged=[...outside,...newRows].sort((a,b)=>a.date.localeCompare(b.date));
+    setTxs(merged);lsSave(merged);
+    setMsg(`🔄 ${removed} record sostituiti. Riscrivo Sheets...`);
+    setSyncing(true);
+    try{
+      await gsClear(url);
+      await gsWrite(url,merged,(done,tot)=>setMsg(`☁️ Google Sheets: ${done}/${tot} blocchi · ${Math.round(done/tot*100)}%`));
+      setMsg(`✅ Periodo sostituito · ${merged.length} transazioni totali.`);
+    }catch{setMsg("⚠️ Aggiornato in locale. Sheets non raggiungibile.");}
+    setSyncing(false);setTimeout(()=>setMsg(""),6000);e.target.value="";
+  }
+
+  // Modalità 3: Reimporta tutto — cancella tutto e ricarica da zero
+  async function handleFullReimport(e){
+    const files=Array.from(e.target.files);
+    if(!files.length)return;
+    if(!window.confirm(`ATTENZIONE: questo cancellerà TUTTE le ${txs.length} transazioni esistenti e le reimporterà dai ${files.length} file selezionati.\n\nContinuare?`)){e.target.value="";return;}
+    setSyncing(true);
+    setMsg("🗑️ Cancello tutto...");
+    lsSave([]);setTxs([]);
+    try{await gsClear(url);}catch{}
+    const newRows=await parseFiles(files);
+    const sorted=newRows.sort((a,b)=>a.date.localeCompare(b.date));
+    setTxs(sorted);lsSave(sorted);
+    setMsg(`📤 Salvo ${sorted.length} transazioni...`);
+    try{
+      await gsWrite(url,sorted,(done,tot)=>setMsg(`☁️ Google Sheets: ${done}/${tot} blocchi · ${Math.round(done/tot*100)}%`));
+      setMsg(`✅ Reimport completo · ${sorted.length} transazioni.`);
+    }catch{setMsg("⚠️ Salvato solo in locale.");}
+    setSyncing(false);setTimeout(()=>setMsg(""),6000);e.target.value="";
+  }
+
+  const years=useMemo(()=>[...new Set(txs.map(t=>t.year))].sort(),[txs]);
+  const filteredTxs=useMemo(()=>filterTxs(txs,selYear,selMonth),[txs,selYear,selMonth]);
+  const agg=useMemo(()=>aggregate(filteredTxs,excInvest),[filteredTxs,excInvest]);
+  const pnl=useMemo(()=>investPnL(filteredTxs),[filteredTxs]);
+
+  const periodLabel=selYear?(selMonth?`${MONTHS_IT[selMonth-1]} ${selYear}`:String(selYear)):"Tutti gli anni";
+
+  if(!ready)return<div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",color:C.muted}}>Avvio...</div>;
+  if(setup)return<Setup onSave={handleSaveUrl}/>;
+
+  const TABS=[["panoramica","📊 Panoramica"],["mensile","📅 Mensile"],["categorie","🏷 Categorie"],["fornitori","🏪 Fornitori"],["investimenti","📈 Investimenti"],["regole","🔧 Regole"]];
+
+  return(
+    <div style={{display:"flex",height:"100vh",overflow:"hidden",background:C.bg}}>
+      {/* LEFT SIDEBAR - desktop */}
+      <div className="sidebar-desktop" style={{flexShrink:0}}>
+        <Sidebar years={years} selYear={selYear} setSelYear={setSelYear} selMonth={selMonth} setSelMonth={setSelMonth}/>
+      </div>
+
+      {/* MAIN AREA */}
+      <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+        {/* TOP HEADER */}
+        <div style={{background:C.card,borderBottom:`1px solid ${C.border}`,padding:"10px 16px",flexShrink:0,boxShadow:"0 1px 4px rgba(0,0,0,.04)"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+            <div style={{flex:1,minWidth:120}}>
+              <div style={{fontSize:16,fontWeight:800}}>💳 Conto Corrente</div>
+              <div style={{color:C.muted,fontSize:10}}>{txs.length.toLocaleString()} transazioni · <strong style={{color:"#60a5fa"}}>{periodLabel}</strong><span style={{marginLeft:8,background:"#f0fdf4",color:"#16a34a",borderRadius:4,padding:"1px 6px",fontSize:9,fontWeight:700,letterSpacing:0.5}}>{VERSION}</span></div>
+            </div>
+            <label title="Aggiungi nuove transazioni (salta duplicati)" style={{background:"#60a5fa",color:"#fff",borderRadius:8,padding:"7px 12px",cursor:syncing?"not-allowed":"pointer",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:4,opacity:syncing?0.6:1}}>
+              📂 Aggiungi<input type="file" accept=".csv" multiple onChange={handleUpload} style={{display:"none"}} disabled={syncing}/>
+            </label>
+            <label title="Sostituisce i dati del periodo coperto dal file — utile per reimportare un trimestre" style={{background:"#fef3c7",color:"#b45309",border:"1px solid #fcd34d",borderRadius:8,padding:"7px 12px",cursor:syncing?"not-allowed":"pointer",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:4,opacity:syncing?0.6:1}}>
+              🔁 Sostituisci<input type="file" accept=".csv" multiple onChange={handleReplaceByPeriod} style={{display:"none"}} disabled={syncing}/>
+            </label>
+            <label title="Cancella tutto e reimporta da zero (seleziona TUTTI i file CSV)" style={{background:"#fee2e2",color:"#dc2626",border:"1px solid #fca5a5",borderRadius:8,padding:"7px 12px",cursor:syncing?"not-allowed":"pointer",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:4,opacity:syncing?0.6:1}}>
+              ♻️ Tutto<input type="file" accept=".csv" multiple onChange={handleFullReimport} style={{display:"none"}} disabled={syncing}/>
+            </label>
+            <button onClick={()=>syncFrom(url,txs.length)} disabled={syncing} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:"7px 11px",cursor:"pointer",fontSize:15}} title="Ricarica da Sheets">🔄</button>
+            <button onClick={()=>setSetup(true)} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:"7px 11px",cursor:"pointer",fontSize:15}} title="Impostazioni">⚙️</button>
+          </div>
+        </div>
+
+        {/* STATUS */}
+        {msg&&<div style={{background:"#eff6ff",borderBottom:"1px solid #bfdbfe",padding:"7px 16px",fontSize:12,color:"#3b82f6",textAlign:"center",flexShrink:0}}>{msg}</div>}
+
+        {/* MOBILE YEAR/MONTH FILTER */}
+        <div className="sidebar-mobile" style={{background:C.sidebar,borderBottom:`1px solid ${C.border}`,padding:"8px 12px",gap:6,overflowX:"auto",flexShrink:0,alignItems:"center"}}>
+          <span style={{fontSize:10,color:C.faint,fontWeight:700,whiteSpace:"nowrap"}}>ANNO:</span>
+          {[null,...years].map(y=>(
+            <button key={y||"all"} onClick={()=>{setSelYear(y);setSelMonth(null);}} style={{
+              background:selYear===y&&y!==null?"#60a5fa":!y&&!selYear?"#60a5fa":"transparent",
+              color:((selYear===y&&y!==null)||(!y&&!selYear))?"#fff":C.muted,
+              border:`1px solid ${((selYear===y&&y!==null)||(!y&&!selYear))?"#60a5fa":C.border}`,
+              borderRadius:5,padding:"4px 10px",fontSize:11,cursor:"pointer",whiteSpace:"nowrap"
+            }}>{y||"Tutti"}</button>
+          ))}
+          {selYear&&<>
+            <span style={{fontSize:10,color:C.faint,fontWeight:700,whiteSpace:"nowrap",marginLeft:4}}>MESE:</span>
+            {MONTHS_IT.map((m,i)=>(
+              <button key={i} onClick={()=>setSelMonth(selMonth===i+1?null:i+1)} style={{
+                background:selMonth===i+1?"#60a5fa":"transparent",
+                color:selMonth===i+1?"#fff":C.muted,
+                border:`1px solid ${selMonth===i+1?"#60a5fa":C.border}`,
+                borderRadius:5,padding:"4px 8px",fontSize:11,cursor:"pointer",whiteSpace:"nowrap"
+              }}>{m}</button>
+            ))}
+          </>}
+        </div>
+
+        {/* SCROLLABLE CONTENT */}
+        <div style={{flex:1,overflow:"auto",padding:"16px"}}>
+
+          {/* EMPTY */}
+          {txs.length===0&&!syncing&&(
+            <div style={{textAlign:"center",padding:"60px 20px",color:C.muted}}>
+              <div style={{fontSize:52,marginBottom:12}}>📂</div>
+              <h2 style={{color:C.text,marginBottom:8}}>Nessun dato</h2>
+              <p style={{fontSize:14}}>Clicca <strong>📂 Aggiungi</strong> per aggiungere file CSV · <strong>♻️ Tutto</strong> per importare tutto da zero.</p>
+            </div>
+          )}
+
+          {txs.length>0&&(<>
+            {/* INVEST BANNER */}
+            <div style={{background:"#fffbeb",border:"1px solid #fde68a",borderRadius:8,padding:"8px 14px",marginBottom:14,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",fontSize:12}}>
+              <span style={{color:"#92400e",flex:1,lineHeight:1.5}}>
+                📈 <strong>{pnl.count}</strong> op. investimento — acquisti: <strong>{fmt(pnl.totalOut)}</strong> · vendite: <strong>{fmt(pnl.totalIn)}</strong> · P&L: <strong style={{color:(pnl.totalIn-pnl.totalOut)>=0?"#10b981":"#ef4444"}}>{fmt(pnl.totalIn-pnl.totalOut)}</strong>
+              </span>
+              <label style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",fontWeight:600,color:"#92400e",whiteSpace:"nowrap",fontSize:11}}>
+                <input type="checkbox" checked={excInvest} onChange={e=>setExcInvest(e.target.checked)}/> Escludi dai totali
+              </label>
+            </div>
+
+            {/* KPIs */}
+            <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
+              <Card label="Entrate" value={fmt(agg.totalE)} sub={excInvest?"senza investimenti":periodLabel} color="#6ee7b7" icon="↑"/>
+              <Card label="Uscite"  value={fmt(agg.totalU)} sub={excInvest?"senza investimenti":periodLabel} color="#fca5a5" icon="↓"/>
+              <Card label="Saldo"   value={fmt(Math.abs(agg.totalE-agg.totalU))} sub={(agg.totalE-agg.totalU)>=0?"positivo":"negativo"} color={(agg.totalE-agg.totalU)>=0?"#6ee7b7":"#fca5a5"} icon="≈"/>
+              <Card label="Transaz." value={filteredTxs.length.toLocaleString()} sub={periodLabel} color="#93c5fd" icon="#"/>
+            </div>
+
+            {/* TABS */}
+            <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap"}}>
+              {TABS.map(([id,label])=>(
+                <button key={id} onClick={()=>setTab(id)} style={{
+                  background:tab===id?"#60a5fa":"transparent",
+                  color:tab===id?"#fff":C.muted,
+                  border:`1px solid ${tab===id?"#60a5fa":C.border}`,
+                  borderRadius:6,padding:"6px 14px",fontSize:12,
+                  fontWeight:tab===id?600:400,cursor:"pointer"
+                }}>{label}</button>
+              ))}
+            </div>
+
+            {tab==="panoramica"&&<PanoramicaTab allTxs={txs} filteredTxs={filteredTxs} selYear={selYear} selMonth={selMonth} excInvest={excInvest}/>}
+            {tab==="mensile"&&<MensileTab txs={filteredTxs} excInvest={excInvest}/>}
+            {tab==="categorie"&&<CategorieTab txs={filteredTxs} excInvest={excInvest} selYear={selYear} selMonth={selMonth}/>}
+            {tab==="fornitori"&&<FornitoriTab allTxs={txs} filteredTxs={filteredTxs} selYear={selYear} selMonth={selMonth}/>}
+            {tab==="investimenti"&&<InvestimentiTab txs={filteredTxs}/>}
+            {tab==="regole"&&<RulesTab gsUrl={url} txs={txs} onRulesChange={()=>{
+              const local=lsGet();
+              if(local.length>0)setTxs(local.map(t=>({...t,...extractAndClassify(t.causale,t.descrizione,rulesGet())})));
+              setRulesRev(v=>v+1);
+              if(url)settingsPush(url);
+            }}/>}
+          </>)}
+        </div>
+      </div>
+    </div>
+  );
+}
+ReactDOM.render(<App/>, document.getElementById("root"));
+</script>
+</body>
+</html>
