@@ -323,7 +323,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v6.8 · 19 mag 2025";
+const VERSION="v6.9 · 19 mag 2025";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",maximumFractionDigits:0}).format(n||0);
@@ -1684,8 +1684,9 @@ function App(){
   }
 
   // Modalità 1: Aggiungi — salta i duplicati (comportamento normale)
-  async function handleUpload(e){
-    const files=Array.from(e.target?.files||e.files||[]);
+  async function handleUpload(files){
+    if(Array.isArray(files)&&files.length===0)return;
+    files=Array.isArray(files)?files:Array.from(files.target?.files||[]);
     if(!files.length)return;
     setMsg(`⏳ Leggo ${files.length} file...`);
     const newRows=await parseFiles(files);
@@ -1706,8 +1707,9 @@ function App(){
   }
 
   // Modalità 2: Sostituisci periodo — rimuove i dati nel range del file e reinserisce
-  async function handleReplaceByPeriod(e){
-    const files=Array.from(e.target?.files||e.files||[]);
+  async function handleReplaceByPeriod(files){
+    if(Array.isArray(files)&&files.length===0)return;
+    files=Array.isArray(files)?files:Array.from(files.target?.files||[]);
     if(!files.length)return;
     setMsg(`⏳ Analizzo ${files.length} file...`);
     const newRows=await parseFiles(files);
@@ -1732,8 +1734,9 @@ function App(){
   }
 
   // Modalità 3: Reimporta tutto — cancella tutto e ricarica da zero
-  async function handleFullReimport(e){
-    const files=Array.from(e.target?.files||e.files||[]);
+  async function handleFullReimport(files){
+    if(Array.isArray(files)&&files.length===0)return;
+    files=Array.isArray(files)?files:Array.from(files.target?.files||[]);
     if(!files.length)return;
     setSyncing(true);
     setMsg("🗑️ Cancello dati esistenti...");
@@ -1797,7 +1800,7 @@ function App(){
             </div>
             <label title="Aggiungi nuove transazioni (salta duplicati)" style={{background:"#60a5fa",color:"#fff",borderRadius:8,padding:"7px 12px",cursor:syncing?"not-allowed":"pointer",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:4,opacity:syncing?0.6:1}}>
               📂 Aggiungi<input id="inp-add" type="file" accept=".csv" multiple style={{display:"none"}} disabled={syncing}
-                onChange={e=>{if(e.target.files.length){pendingFilesRef.current=e;setModal({
+                onChange={e=>{const fs=Array.from(e.target.files);if(fs.length){pendingFilesRef.current=fs;setModal({
                   title:"📂 Aggiungi transazioni",
                   message:"Usa questa funzione per aggiungere nuovi record da una nuova estrazione della tua banca.\n\nI dati verranno accodati al database esistente.\n\nAttenzione: se carichi un file già importato in precedenza, le transazioni risulteranno duplicate.",
                   danger:false,
@@ -1806,7 +1809,7 @@ function App(){
             </label>
             <label title="Sostituisce i dati del periodo coperto dal file — utile per reimportare un trimestre" style={{background:"#fef3c7",color:"#b45309",border:"1px solid #fcd34d",borderRadius:8,padding:"7px 12px",cursor:syncing?"not-allowed":"pointer",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:4,opacity:syncing?0.6:1}}>
               🔁 Sostituisci<input id="inp-rep" type="file" accept=".csv" multiple style={{display:"none"}} disabled={syncing}
-                onChange={e=>{if(e.target.files.length){pendingFilesRef.current=e;setModal({
+                onChange={e=>{const fs=Array.from(e.target.files);if(fs.length){pendingFilesRef.current=fs;setModal({
                   title:"🔁 Sostituisci periodo",
                   message:"Usa questa funzione per ricaricare un\'estrazione che avevi già importato.\n\nLe transazioni con lo stesso intervallo di date verranno eliminate e sostituite con quelle del nuovo file.\n\nLe transazioni di altri periodi non vengono toccate.",
                   danger:false,
@@ -1815,9 +1818,9 @@ function App(){
             </label>
             <label title="Cancella tutto e reimporta da zero (seleziona TUTTI i file CSV)" style={{background:"#fee2e2",color:"#dc2626",border:"1px solid #fca5a5",borderRadius:8,padding:"7px 12px",cursor:syncing?"not-allowed":"pointer",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:4,opacity:syncing?0.6:1}}>
               ♻️ Tutto<input id="inp-full" type="file" accept=".csv" multiple style={{display:"none"}} disabled={syncing}
-                onChange={e=>{if(e.target.files.length){pendingFilesRef.current=e;setModal({
+                onChange={e=>{const fs=Array.from(e.target.files);if(fs.length){pendingFilesRef.current=fs;setModal({
                   title:"♻️ Reimport completo",
-                  message:`⚠️ Operazione irreversibile.\n\nL'intero database verrà azzerato e sostituito con i ${e.target.files.length} file selezionati.\nTutte le ${txs.length} transazioni attuali andranno perse.\n\nLe tue regole di categorizzazione e le categorie personalizzate rimarranno intatte.`,
+                  message:`⚠️ Operazione irreversibile.\n\nL'intero database verrà azzerato e sostituito con i ${fs.length} file selezionati.\nTutte le ${txs.length} transazioni attuali andranno perse.\n\nLe tue regole di categorizzazione e le categorie personalizzate rimarranno intatte.`,
                   danger:true,
                   handler:()=>{handleFullReimport(pendingFilesRef.current);pendingFilesRef.current=null;}
                 });}}}/>
