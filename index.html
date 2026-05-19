@@ -962,6 +962,7 @@ function CategorieTab({txs,excInvest,selYear,selMonth,onRuleAdded}){
   const H=Math.max(360,catData.length*30);
 
   return(
+    <>
     <div style={{display:"flex",flexDirection:"column",gap:16}}>
       {selCat&&(
         <div style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:8,padding:"8px 14px",display:"flex",alignItems:"center",gap:10,fontSize:12}}>
@@ -1191,6 +1192,7 @@ function CategorieTab({txs,excInvest,selYear,selMonth,onRuleAdded}){
         </div>
       </div>
     )}
+    </>
   );
 }
 
