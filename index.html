@@ -323,7 +323,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v6.9 · 19 mag 2025";
+const VERSION="v7.0 · 19 mag 2025";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",maximumFractionDigits:0}).format(n||0);
@@ -1766,19 +1766,7 @@ function App(){
 
   if(!ready)return<div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",color:C.muted}}>Avvio...</div>;
   if(setup)return<Setup onSave={handleSaveUrl}/>;
-  // Modal conferma import
-  if(modal)return(
-    <>
-      {/* Render app underneath */}
-      <ConfirmModal
-        title={modal.title}
-        message={modal.message}
-        danger={modal.danger}
-        onConfirm={()=>{setModal(null);modal.handler();}}
-        onCancel={()=>{setModal(null);try{document.getElementById("inp-add").value="";document.getElementById("inp-rep").value="";document.getElementById("inp-full").value="";}catch{}}}
-      />
-    </>
-  );
+
 
   const TABS=[["panoramica","📊 Panoramica"],["mensile","📅 Mensile"],["categorie","🏷 Categorie"],["fornitori","🏪 Fornitori"],["investimenti","📈 Investimenti"],["regole","🔧 Regole"]];
 
@@ -1931,6 +1919,13 @@ function App(){
               if(url)settingsPush(url);
             }}/>}
           </>)}
+      {modal&&<ConfirmModal
+        title={modal.title}
+        message={modal.message}
+        danger={modal.danger}
+        onConfirm={()=>{const h=modal.handler;setModal(null);setTimeout(()=>h(),50);}}
+        onCancel={()=>{setModal(null);["inp-add","inp-rep","inp-full"].forEach(id=>{try{document.getElementById(id).value="";}catch{}});}}
+      />}
         </div>
       </div>
     </div>
