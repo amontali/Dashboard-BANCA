@@ -304,9 +304,17 @@ async function settingsPull(url){
     const r=await fetch(`${url}?action=readSettings`,{redirect:"follow"});
     const d=await r.json();
     if(d.status==="ok"&&d.settings){
-      if(d.settings.cats?.length){catsSave(d.settings.cats);}
-      if(d.settings.rules){rulesSave(d.settings.rules);}
-      if(d.settings.aliases){aliasSave(d.settings.aliases);}
+      // Cats: aggiorna solo se Sheets ne ha di più
+      if(d.settings.cats?.length>catsGet().length) catsSave(d.settings.cats);
+      // Regole: aggiorna SOLO se Sheets ne ha DI PIÙ del locale (mai sovrascrivere con meno)
+      const localRules=rulesGet();
+      const remoteRules=d.settings.rules||[];
+      if(remoteRules.length>localRules.length) rulesSave(remoteRules);
+      // Aliases: merge (non sovrascrivere)
+      if(d.settings.aliases){
+        const merged={...d.settings.aliases,...aliasGet()};
+        aliasSave(merged);
+      }
       return true;
     }
   }catch{}
@@ -323,7 +331,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v7.1 · 19 mag 2025";
+const VERSION="v7.2 · 19 mag 2025";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",maximumFractionDigits:0}).format(n||0);
@@ -1310,16 +1318,20 @@ function RulesTab({gsUrl,txs,onRulesChange}){
   // Sync da Sheets ogni volta che si apre il tab Regole
   useEffect(()=>{
     if(!gsUrl)return;
-    setSyncStatus("Carico impostazioni...");
+    // Pull da Sheets solo se locale è vuoto (non sovrascrivere mai regole esistenti)
+    const localRules=rulesGet();
+    if(localRules.length>0){
+      // Locale ha regole — push verso Sheets per allinearlo, non fare pull
+      settingsPush(gsUrl).then(()=>{
+        setSyncStatus("☁️ Sheets allineato ✓");
+        setTimeout(()=>setSyncStatus(""),2000);
+      });
+      return;
+    }
+    setSyncStatus("Carico impostazioni da Sheets...");
     settingsPull(gsUrl).then(ok=>{
-      if(ok){
-        // Ricarica stato locale dopo pull
-        setCats(catsGet());
-        setRules(rulesGet());
-        setSyncStatus("Sincronizzato ✓");
-      } else {
-        setSyncStatus("Sheets non raggiungibile");
-      }
+      if(ok){setCats(catsGet());setRules(rulesGet());setSyncStatus("Sincronizzato ✓");}
+      else setSyncStatus("Sheets non raggiungibile");
       setTimeout(()=>setSyncStatus(""),2500);
     });
   },[gsUrl]);
