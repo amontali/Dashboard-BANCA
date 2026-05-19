@@ -21,6 +21,7 @@
     @media(max-width:600px){
       .sidebar-desktop{display:none!important}
       .sidebar-mobile{display:flex!important}
+      .cat-grid{grid-template-columns:1fr!important}
     }
     @media(min-width:601px){
       .sidebar-desktop{display:flex}
@@ -331,7 +332,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v7.4 · 19 mag 2025";
+const VERSION="v7.5 · 19 mag 2025";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",maximumFractionDigits:0}).format(n||0);
@@ -973,18 +974,18 @@ function CategorieTab({txs,excInvest,selYear,selMonth,onRuleAdded}){
       )}
 
       {/* 3 colonne: Barre | Ciambella | Fornitori */}
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 420px",gap:16,alignItems:"start"}}>
+      <div className="cat-grid" style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr) minmax(280px,380px)",gap:8,alignItems:"start"}}>
         {/* BARRE — sinistra */}
         <Box title="Totale per categoria — clicca per selezionare">
           <ResponsiveContainer width="100%" height={Math.max(400,catData.length*32)}>
             <BarChart data={[...catData].reverse()} layout="vertical" margin={{right:65}}
               onClick={d=>{if(d?.activePayload?.[0])setSelCat(s=>s===d.activePayload[0].payload.name?null:d.activePayload[0].payload.name);}}>
               <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
-              <XAxis type="number" tickFormatter={fmtK} tick={{fill:C.muted,fontSize:12}} tickLine={false}/>
-              <YAxis type="category" dataKey="name" width={140} tick={{fill:C.text,fontSize:12,fontWeight:500}}/>
+              <XAxis type="number" tickFormatter={fmtK} tick={{fill:C.muted,fontSize:13}} tickLine={false}/>
+              <YAxis type="category" dataKey="name" width={130} tick={{fill:C.text,fontSize:12,fontWeight:600}}/>
               <Tooltip formatter={v=>fmt(v)} contentStyle={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,fontSize:12}}/>
               <Bar dataKey="value" name="Totale" radius={[0,4,4,0]} style={{cursor:"pointer"}}
-                label={{position:"right",formatter:v=>fmt(v),fontSize:11,fill:C.muted,fontWeight:600}}>
+                label={{position:"right",formatter:v=>fmtK(v),fontSize:12,fill:C.muted,fontWeight:700}}>
                 {[...catData].reverse().map((_,i)=>{
                   const name=[...catData].reverse()[i].name;
                   return<Cell key={i} fill={PASTEL[(catData.length-1-i)%PASTEL.length]} opacity={selCat&&name!==selCat?0.3:1}/>;
@@ -1009,7 +1010,7 @@ function CategorieTab({txs,excInvest,selYear,selMonth,onRuleAdded}){
                   const y=cy+radius*Math.sin(-midAngle*RADIAN);
                   const short=name.length>12?name.slice(0,11)+"…":name;
                   return(
-                    <text x={x} y={y} fill={C.text} textAnchor={x>cx?"start":"end"} dominantBaseline="central" fontSize={10} fontWeight={600}>
+                    <text x={x} y={y} fill={C.text} textAnchor={x>cx?"start":"end"} dominantBaseline="central" fontSize={11} fontWeight={700}>
                       {short}: {fmt(value)}
                     </text>
                   );
@@ -1041,10 +1042,10 @@ function CategorieTab({txs,excInvest,selYear,selMonth,onRuleAdded}){
             return(
               <div style={{display:"flex",flexDirection:"column",gap:0}}>
                 {sorted.map(([name,val],i)=>(
-                  <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 6px",borderBottom:`1px solid ${C.border}`,fontSize:14}}>
+                  <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 6px",borderBottom:`1px solid ${C.border}`,fontSize:13}}>
                     <div style={{width:10,height:10,borderRadius:3,background:PASTEL[i%PASTEL.length],flexShrink:0}}/>
                     <span style={{flex:1,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:500}} title={name}>{name}</span>
-                    <span style={{fontWeight:700,color:C.text,whiteSpace:"nowrap",fontSize:14}}>{fmt(val)}</span>
+                    <span style={{fontWeight:700,color:C.text,whiteSpace:"nowrap",fontSize:13}}>{fmt(val)}</span>
                   </div>
                 ))}
                 <div style={{display:"flex",justifyContent:"space-between",padding:"10px 6px",marginTop:4,fontWeight:800,fontSize:15,color:"#3b82f6",borderTop:`2px solid ${C.border}`}}>
@@ -1132,10 +1133,10 @@ function CategorieTab({txs,excInvest,selYear,selMonth,onRuleAdded}){
                           style={{background:"transparent",border:"none",cursor:"pointer",fontSize:12,padding:"1px 3px",color:C.muted}}>✏️</button>
                       </div>
                     </td>
-                    <td style={{padding:"8px 10px",color:C.muted,whiteSpace:"nowrap",fontSize:11}}>{t.date}</td>
-                    <td style={{padding:"8px 10px",color:C.text,fontWeight:500,whiteSpace:"nowrap"}}>{t.vendor||"—"}</td>
-                    <td style={{padding:"8px 10px",color:C.faint,maxWidth:260,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.descrizione}</td>
-                    <td style={{padding:"8px 10px",color:"#ef4444",fontWeight:700,whiteSpace:"nowrap",textAlign:"right"}}>{fmt(t.uscita)}</td>
+                    <td style={{padding:"6px 8px",color:C.muted,whiteSpace:"nowrap",fontSize:12}}>{t.date}</td>
+                    <td style={{padding:"6px 8px",color:C.text,fontWeight:500,whiteSpace:"nowrap"}}>{t.vendor||"—"}</td>
+                    <td style={{padding:"6px 8px",color:C.faint,maxWidth:240,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.descrizione}</td>
+                    <td style={{padding:"6px 8px",color:"#ef4444",fontWeight:700,whiteSpace:"nowrap",textAlign:"right"}}>{fmt(t.uscita)}</td>
                   </tr>
                 ))}
               </tbody>
