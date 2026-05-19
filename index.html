@@ -323,7 +323,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v6.1 · 19 mag 2025";
+const VERSION="v6.2 · 19 mag 2025";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",maximumFractionDigits:0}).format(n||0);
@@ -1752,18 +1752,18 @@ function App(){
             {tab==="regole"&&<RulesTab gsUrl={url} txs={txs} onRulesChange={()=>{
               const rules=rulesGet();
               const local=lsGet();
-              if(local.length>0)setTxs(local.map(t=>{
-                // Usa vendor già estratto e salvato — non riestrarre dalla descrizione
-                const v=t.vendor||extractVendor(t.causale,t.descrizione);
-                const norm=normalizeVendor(v,rules);
-                if(norm)return{...t,vendor:norm.name,categoria:applyAlias(norm.cat)};
-                // Nessuna regola matcha: mantieni vendor, ricalcola categoria solo se era "Altro"
-                if(t.categoria==="Altro"||t.categoria==="Bonifici"){
-                  const fresh=extractAndClassify(t.causale,t.descrizione,rules);
-                  return{...t,vendor:v,categoria:fresh.categoria};
-                }
-                return t;
-              }));
+              if(local.length>0){
+                const updated=local.map(t=>{
+                  // Usa vendor già estratto — non riestrarre dalla descrizione
+                  const v=t.vendor||extractVendor(t.causale,t.descrizione);
+                  const norm=normalizeVendor(v,rules);
+                  if(norm)return{...t,vendor:norm.name||v,categoria:applyAlias(norm.cat)};
+                  // Nessuna regola: mantieni categoria esistente
+                  return t;
+                });
+                lsSave(updated);   // ← salva in localStorage così persiste al refresh
+                setTxs(updated);
+              }
               setRulesRev(v=>v+1);
               if(url)settingsPush(url);
             }}/>}
