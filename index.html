@@ -102,6 +102,9 @@ const CHAIN_MAP=[
   [/allianz/i,"Allianz","Assicurazioni"],
   [/unipol/i,"Unipol","Assicurazioni"],
   [/farmacia/i,null,"Farmacia"],
+  // ── Giro Interno ──
+  [/giroconto/i,"Giroconto","💰 Giro Interno"],
+  [/giro.*conto|conto.*deposito/i,"Giro Interno","💰 Giro Interno"],
   // ── Abbigliamento / Scarpe ──
   [/\bzara\b/i,"Zara","Abbigliamento / Scarpe"],
   [/\bh&m\b|h and m/i,"H&M","Abbigliamento / Scarpe"],
@@ -202,9 +205,52 @@ const CHAIN_MAP=[
   [/zara.home/i,"Zara Home","Casa / Brico"],
   [/westwing/i,"Westwing","Casa / Brico"],
   [/maisons.du.monde/i,"Maisons du Monde","Casa / Brico"],
+  // ── Supermercato aggiuntivi ──
+  [/iperal/i,"Iperal","Supermercato"],
+  [/simply/i,"Simply","Supermercato"],
+  [/dok/i,"Dok","Supermercato"],
+  [/famila/i,"Famila","Supermercato"],
+  [/pam/i,"Pam","Supermercato"],
+  [/despar/i,"Despar","Supermercato"],
+  [/interspar/i,"Interspar","Supermercato"],
+  [/naturasi/i,"NaturaSì","Supermercato"],
+  [/esselunga/i,"Esselunga","Supermercato"],
+  // ── Trasporti aggiuntivi ──
+  [/trenord/i,"Trenord","Trasporti / Viaggio"],
+  [/atm.*milan|milan.*atm/i,"ATM Milano","Trasporti / Viaggio"],
+  [/gtt/i,"GTT Torino","Trasporti / Viaggio"],
+  [/atac/i,"ATAC Roma","Trasporti / Viaggio"],
+  [/\bmovit\b/i,"Movit","Trasporti / Viaggio"],
+  [/nazional.*trasport|trasport.*nazional/i,null,"Trasporti / Viaggio"],
+  // ── Assicurazioni aggiuntive ──
+  [/prima.assicurazioni/i,"Prima Assicurazioni","Assicurazioni"],
+  [/zurich/i,"Zurich","Assicurazioni"],
+  [/axa/i,"AXA","Assicurazioni"],
+  [/vittoria.assicurazioni/i,"Vittoria","Assicurazioni"],
+  // ── Salute / Medico ──
+  [/san.raffaele/i,"San Raffaele","Farmacia"],
+  [/centro.*medicina|medicina.*centro/i,null,"Farmacia"],
+  [/laboratorio.*analisi|analisi.*laboratorio/i,null,"Farmacia"],
+  [/ospedale/i,null,"Farmacia"],
+  [/clinica/i,null,"Farmacia"],
+  [/dentista|odontoiatr/i,null,"Farmacia"],
+  // ── Sport / Fitness aggiuntivi ──
+  [/cisalfa/i,"Cisalfa Sport","Sport / Fitness"],
+  [/sportcity/i,"SportCity","Sport / Fitness"],
+  // ── Ristorazione aggiuntivi ──
+  [/laboratorio.pasticcer/i,"Lab. Pasticceri","Ristorazione"],
+  [/frutta.e.verdura/i,null,"Supermercato"],
+  [/the.grey.cat|grey.cat/i,"The Grey Cat","Ristorazione"],
+  [/circolo.magnolia|magnolia/i,"Circolo Magnolia","Ristorazione"],
+  // ── Altro ──
+  [/autoscuola/i,null,"Altro"],
+  [/banco.bpm/i,"Banco BPM","Spese Bancarie"],
+  [/facebk|facebook/i,"Facebook/Meta","Software / AI"],
 ];
 
-const CATS=["Supermercato","Carburante","E-commerce","Streaming","Ristorazione","Sport / Fitness","Casa / Brico","Abbigliamento / Scarpe","Beauty / Cura","Elettronica","Animali","Trasporti / Viaggio","Software / AI","Cultura / Svago","Telefonia","Utenze","Assicurazioni","Farmacia","Tasse","Bonifici","Prelievi ATM","Carta di Credito","Rate / Dom.","Stipendio","Spese Bancarie","Investimenti","Altro"];
+const CATS=["Supermercato","Carburante","E-commerce","Streaming","Ristorazione","Sport / Fitness","Casa / Brico","Abbigliamento / Scarpe","Beauty / Cura","Elettronica","Animali","Trasporti / Viaggio","Software / AI","Cultura / Svago","Telefonia","Utenze","Assicurazioni","Farmacia","Tasse","Bonifici","Prelievi ATM","Carta di Credito","Rate / Dom.","Stipendio","Spese Bancarie","Investimenti","💰 Giro Interno","Altro"];
+// Categorie neutrali (escluse dai totali per default, come investimenti)
+const NEUTRAL_CATS=["📈 Investimenti","💰 Giro Interno"];
 
 function rulesGet(){try{const d=localStorage.getItem("userRules");return d?JSON.parse(d):[]}catch{return[]}}
 function rulesSave(r){try{localStorage.setItem("userRules",JSON.stringify(r))}catch{}}
@@ -277,7 +323,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v5.11 · 18 mag 2025";
+const VERSION="v6.0 · 19 mag 2025";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",maximumFractionDigits:0}).format(n||0);
@@ -319,6 +365,9 @@ function cleanMerchant(raw){
   v=v.replace(/\s+[A-Z]\d{2,}(?:\s|$)/g," ");
   v=v.replace(/\s+\d+\s*$/,"");
   v=v.replace(/\s+(?:S\.?R\.?L\.?S?\.?|S\.?P\.?A\.?|S\.?N\.?C\.?|SRL|SPA|SNC|SRLS)\s*\.?\s*$/i,"");
+  v=v.replace(/\s+C\.?\s*Benef.*$/i,"");   // rimuove "C. Benef. IBAN..."
+  v=v.replace(/^(?:Paypal\s*\*|Paypal\s+)/i,"");  // rimuove prefisso "PAYPAL *"
+  v=v.replace(/^(?:Amazon\s*\*)/i,"");              // rimuove prefisso "AMAZON *"
   v=v.replace(/\s{2,}/g," ").trim();
   return titleCase(v).slice(0,40);
 }
@@ -327,11 +376,31 @@ function extractAndClassify(causale,desc,userRules){
   let rawName=null;
   const pm=raw.match(/[Pp]resso\s+(.+?)(?:\s*-\s*(?:VIA|V\.?LE|VIALE|CORSO|C\.?SO|PIAZZA|P\.?ZZA|LOC|FRAZ|STR|SNC|\d{5})|$)/i);
   if(pm)rawName=cleanMerchant(pm[1]);
-  if(!rawName){const bm=raw.match(/(?:A FAVORE DI|BENEF(?:ICIARIO)?[.:]?\s*)([A-Za-zÀ-ÿ].+?)(?:\s{2,}|\s+(?:IBAN|IT\d\d)|$)/i);if(bm)rawName=cleanMerchant(bm[1]);}
+  if(!rawName){
+    // "A FAVORE DI Michele Crespi C. BENEF. IT..." → "Michele Crespi"
+    const bm=raw.match(/A FAVORE DI\s+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s']{1,40}?)(?:\s+C\.?\s*BENEF|\s{2,}|\s+(?:IBAN|IT\d\d)|$)/i);
+    if(bm)rawName=cleanMerchant(bm[1]);
+  }
   if(!rawName){const am=raw.match(/ADDEBITO\s+(?:SDD|MAV|DIRETTO|UTENZA)\s+(.+?)(?:\s{2,}|$)/i);if(am)rawName=cleanMerchant(am[1]);}
   if(!rawName)rawName=(causale||"N/D").slice(0,40);
+  // Scarta vendor che sono IBAN o codici bancari
+  if(/^It[0-9a-z]{10,}/i.test(rawName)||/^[A-Z]{2}\d{2}[A-Z0-9]{10,}/i.test(rawName)){
+    rawName=(causale||"N/D").slice(0,40);
+  }
   const norm=normalizeVendor(rawName,userRules||[]);
-  const rawCat=norm?norm.cat:categorize(causale,desc);
+  // Se vendor noto in CHAIN_MAP/regole → usa la sua categoria
+  // Se vendor estratto ma non mappato → "Altro" (evita falsi positivi da testo grezzo)
+  // Se nessun vendor estratto (puro bonifico senza nome) → fallback testo grezzo
+  let rawCat;
+  if(norm){
+    rawCat=norm.cat;
+  } else if(rawName && rawName!=="N/D" && pm){
+    // Vendor estratto da "presso" ma non in mappa → Altro
+    rawCat="Altro";
+  } else {
+    // Nessun vendor da "presso": usa testo grezzo per bonifici, addebiti ecc.
+    rawCat=categorize(causale,desc);
+  }
   return{vendor:norm?norm.name:rawName,categoria:applyAlias(rawCat)};
 }
 function extractVendor(causale,desc){return extractAndClassify(causale,desc,[]).vendor;}
@@ -438,7 +507,7 @@ function filterTxs(txs,year,month){
   return month?y.filter(t=>t.month===month):y;
 }
 function aggregate(txs,excInvest){
-  const data=excInvest?txs.filter(t=>t.categoria!=="📈 Investimenti"):txs;
+  const data=excInvest?txs.filter(t=>!NEUTRAL_CATS.includes(t.categoria)):txs;
   const byYm={},byYear={},byCat={};
   for(const t of data){
     if(!byYm[t.ym])byYm[t.ym]={ym:t.ym,year:t.year,month:t.month,entrate:0,uscite:0};
@@ -454,7 +523,7 @@ function aggregate(txs,excInvest){
   return{monthly,yearly,catOut,totalE:data.reduce((s,t)=>s+t.entrata,0),totalU:data.reduce((s,t)=>s+t.uscita,0)};
 }
 function investPnL(txs){
-  const inv=txs.filter(t=>t.categoria==="📈 Investimenti");
+  const inv=txs.filter(t=>t.categoria==="📈 Investimenti"||t.categoria==="Investimenti");
   const byYear={};
   inv.forEach(t=>{if(!byYear[t.year])byYear[t.year]={year:t.year,acquisti:0,vendite:0};byYear[t.year].acquisti+=t.uscita;byYear[t.year].vendite+=t.entrata;});
   return{totalOut:inv.reduce((s,t)=>s+t.uscita,0),totalIn:inv.reduce((s,t)=>s+t.entrata,0),count:inv.length,byYear:Object.values(byYear).sort((a,b)=>a.year-b.year)};
@@ -749,14 +818,21 @@ function MensileTab({txs,excInvest}){
 
 function CategorieTab({txs,excInvest,selYear,selMonth}){
   const [selCat,setSelCat]=useState(null);
-  const [sortBy,setSortBy]=useState("date"); // "date" | "amount"
+  const [sortBy,setSortBy]=useState("date");
+
+  // Quando excInvest cambia e la categoria selezionata è neutrale, deseleziona
+  useEffect(()=>{
+    if(excInvest&&selCat&&NEUTRAL_CATS.includes(selCat))setSelCat(null);
+  },[excInvest,selCat]);
 
   const agg=useMemo(()=>aggregate(txs,excInvest),[txs,excInvest]);
-  const catData=agg.catOut.slice(0,12);
+  const catData=agg.catOut; // TUTTE le categorie, nessun limite
 
   // ── Serie temporale per categoria selezionata ──────────────────────────────
   const timeSeries=useMemo(()=>{
     if(!selCat)return[];
+    // Se excInvest e categoria neutrale → serie vuota
+    if(excInvest&&NEUTRAL_CATS.includes(selCat))return[];
     const filtered=txs.filter(t=>t.uscita>0&&t.categoria===selCat);
 
     if(selYear&&selMonth){
@@ -787,6 +863,7 @@ function CategorieTab({txs,excInvest,selYear,selMonth}){
   // ── Tabella record ──────────────────────────────────────────────────────────
   const tableRows=useMemo(()=>{
     if(!selCat)return[];
+    if(excInvest&&NEUTRAL_CATS.includes(selCat))return[];
     const rows=txs.filter(t=>t.uscita>0&&t.categoria===selCat);
     return sortBy==="date"
       ?[...rows].sort((a,b)=>b.date.localeCompare(a.date))
@@ -813,61 +890,73 @@ function CategorieTab({txs,excInvest,selYear,selMonth}){
         </div>
       )}
 
-      {/* Donut + Barre affiancate */}
+      {/* Barre a SX, Donut a DX */}
       <div className="grid2">
-        <Box title="Distribuzione uscite — clicca per selezionare" minH={440}>
-          <ResponsiveContainer width="100%" height={260}>
-            <PieChart onClick={d=>{
-              if(d?.activePayload?.[0])setSelCat(s=>s===d.activePayload[0].name?null:d.activePayload[0].name);
-            }}>
-              <Pie data={catData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={60} outerRadius={110} paddingAngle={2} style={{cursor:"pointer"}}>
-                {catData.map((_,i)=><Cell key={i} fill={PASTEL[i%PASTEL.length]} opacity={selCat&&catData[i].name!==selCat?0.35:1}/>)}
-              </Pie>
-              <Tooltip formatter={v=>fmt(v)} contentStyle={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,fontSize:12}}/>
-            </PieChart>
-          </ResponsiveContainer>
-          <div style={{display:"flex",flexDirection:"column",gap:5,marginTop:8}}>
-            {catData.map((c,i)=>(
-              <div key={i} onClick={()=>setSelCat(s=>s===c.name?null:c.name)}
-                style={{display:"flex",alignItems:"center",gap:8,fontSize:12,cursor:"pointer",padding:"3px 6px",borderRadius:6,
-                  background:selCat===c.name?"#eff6ff":"transparent",
-                  opacity:selCat&&selCat!==c.name?0.45:1,transition:"all .15s"}}>
-                <div style={{width:8,height:8,borderRadius:2,background:PASTEL[i%PASTEL.length],flexShrink:0}}/>
-                <span style={{flex:1,color:C.muted}}>{c.name}</span>
-                <span style={{fontWeight:700,color:selCat===c.name?"#3b82f6":C.text}}>{fmt(c.value)}</span>
-              </div>
-            ))}
-          </div>
-        </Box>
-
-        <Box title="Totale per categoria — clicca per selezionare" minH={440}>
-          <ResponsiveContainer width="100%" height={H}>
-            <BarChart data={[...catData].reverse()} layout="vertical"
+        {/* BARRE — sinistra */}
+        <Box title="Totale per categoria — clicca per selezionare">
+          <ResponsiveContainer width="100%" height={Math.max(400,catData.length*36)}>
+            <BarChart data={[...catData].reverse()} layout="vertical" margin={{right:70}}
               onClick={d=>{if(d?.activePayload?.[0])setSelCat(s=>s===d.activePayload[0].payload.name?null:d.activePayload[0].payload.name);}}>
               <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
-              <XAxis type="number" tickFormatter={fmtK} tick={{fill:C.muted,fontSize:10}}/>
-              <YAxis type="category" dataKey="name" width={120} tick={{fill:C.muted,fontSize:10}}/>
-              <Tooltip formatter={v=>fmt(v)} contentStyle={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,fontSize:12}}/>
-              <Bar dataKey="value" name="Totale" radius={[0,3,3,0]} style={{cursor:"pointer"}}>
+              <XAxis type="number" tickFormatter={fmtK} tick={{fill:C.muted,fontSize:13}} tickLine={false}/>
+              <YAxis type="category" dataKey="name" width={150} tick={{fill:C.text,fontSize:13,fontWeight:500}}/>
+              <Tooltip formatter={v=>fmt(v)} contentStyle={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,fontSize:13}}/>
+              <Bar dataKey="value" name="Totale" radius={[0,4,4,0]} style={{cursor:"pointer"}}
+                label={{position:"right",formatter:v=>fmt(v),fontSize:12,fill:C.muted,fontWeight:600}}>
                 {[...catData].reverse().map((_,i)=>{
-                  const realIdx=catData.length-1-i;
                   const name=[...catData].reverse()[i].name;
-                  return<Cell key={i} fill={PASTEL[realIdx%PASTEL.length]} opacity={selCat&&name!==selCat?0.35:1}/>;
+                  return<Cell key={i} fill={PASTEL[(catData.length-1-i)%PASTEL.length]} opacity={selCat&&name!==selCat?0.3:1}/>;
                 })}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
         </Box>
+
+        {/* DONUT — destra, grande, etichette esterne */}
+        <Box title="Distribuzione — clicca per selezionare">
+          <ResponsiveContainer width="100%" height={Math.max(400,catData.length*36)}>
+            <PieChart onClick={d=>{if(d?.activePayload?.[0])setSelCat(s=>s===d.activePayload[0].name?null:d.activePayload[0].name);}}>
+              <Pie data={catData} dataKey="value" nameKey="name"
+                cx="50%" cy="50%" innerRadius="30%" outerRadius="62%"
+                paddingAngle={2} style={{cursor:"pointer"}}
+                label={({name,value,percent,cx,cy,midAngle,innerRadius,outerRadius})=>{
+                  if(percent<0.03)return null; // nascondi etichette < 3%
+                  const RADIAN=Math.PI/180;
+                  const radius=outerRadius*1.25;
+                  const x=cx+radius*Math.cos(-midAngle*RADIAN);
+                  const y=cy+radius*Math.sin(-midAngle*RADIAN);
+                  const short=name.length>14?name.slice(0,13)+"…":name;
+                  return(
+                    <text x={x} y={y} fill={C.text} textAnchor={x>cx?"start":"end"} dominantBaseline="central" fontSize={11} fontWeight={600}>
+                      {short}: {fmt(value)}
+                    </text>
+                  );
+                }}
+                labelLine={{stroke:C.faint,strokeWidth:1}}>
+                {catData.map((_,i)=><Cell key={i} fill={PASTEL[i%PASTEL.length]} opacity={selCat&&catData[i].name!==selCat?0.3:1}/>)}
+              </Pie>
+              <Tooltip formatter={v=>fmt(v)} contentStyle={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,fontSize:13}}/>
+            </PieChart>
+          </ResponsiveContainer>
+        </Box>
       </div>
 
-      {/* Grafico temporale — solo se categoria selezionata */}
-      {selCat&&(
-        <Box title={`📈 Andamento: ${trendTitle}`}>
-          {selYear&&selMonth&&timeSeries.every(d=>d.value===0)?(
-            <div style={{textAlign:"center",padding:"30px",color:C.faint,fontSize:13}}>
-              Nessuna transazione in {MONTHS_IT[selMonth-1]} {selYear} per questa categoria
-            </div>
-          ):(
+      {/* Grafico temporale — sempre visibile */}
+      <Box title={selCat?`📈 Andamento: ${trendTitle}`:"📈 Andamento categoria"}>
+        {!selCat?(
+          <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:200,flexDirection:"column",gap:12,color:C.faint}}>
+            <div style={{fontSize:36}}>👆</div>
+            <div style={{fontSize:13}}>Seleziona una categoria cliccando sul grafico</div>
+          </div>
+        ):excInvest&&NEUTRAL_CATS.includes(selCat)?(
+          <div style={{textAlign:"center",padding:"30px",color:C.faint,fontSize:13}}>
+            Categoria esclusa dai totali — rimuovi il filtro "Escludi dai totali" per vederla
+          </div>
+        ):selYear&&selMonth&&timeSeries.every(d=>d.value===0)?(
+          <div style={{textAlign:"center",padding:"30px",color:C.faint,fontSize:13}}>
+            Nessuna transazione in {MONTHS_IT[selMonth-1]} {selYear} per questa categoria
+          </div>
+        ):(
             <ResponsiveContainer width="100%" height={240}>
               <AreaChart data={timeSeries} margin={{top:10,right:20,left:10,bottom:5}}>
                 <defs>
@@ -889,12 +978,12 @@ function CategorieTab({txs,excInvest,selYear,selMonth}){
                   activeDot={{r:5}}/>
               </AreaChart>
             </ResponsiveContainer>
-          )}
-        </Box>
-      )}
+          )
+        }
+      </Box>
 
-      {/* Tabella record — solo se categoria selezionata */}
-      {selCat&&tableRows.length>0&&(
+      {/* Tabella record */}
+      {selCat&&!( excInvest&&NEUTRAL_CATS.includes(selCat))&&tableRows.length>0&&(
         <Box title={`📋 Transazioni: ${selCat} (${tableRows.length} record)`}>
           <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"center",flexWrap:"wrap"}}>
             <span style={{fontSize:11,color:C.muted,fontWeight:600}}>Ordina per:</span>
@@ -986,27 +1075,26 @@ function FornitoriTab({allTxs,filteredTxs,selYear,selMonth}){
       <div className="grid2">
         {/* Top vendors bar */}
         <Box title={`Top fornitori${catFilter?` — ${catFilter}`:""}`} minH={460}>
-          <p style={{fontSize:11,color:C.muted,marginBottom:10}}>Clicca una barra per vedere il trend nel tempo</p>
-          <ResponsiveContainer width="100%" height={Math.max(380,vendors.length*22)}>
-            <BarChart data={[...vendors].reverse()} layout="vertical"
+          <p style={{fontSize:12,color:C.muted,marginBottom:10}}>Clicca una barra per vedere il trend — {vendors.length} fornitori</p>
+          <ResponsiveContainer width="100%" height={Math.max(400,vendors.length*30)}>
+            <BarChart data={[...vendors].reverse()} layout="vertical" margin={{right:80}}
               onClick={d=>d?.activePayload&&setSelVendor(d.activePayload[0]?.payload?.name)}>
               <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
-              <XAxis type="number" tickFormatter={fmtK} tick={{fill:C.muted,fontSize:10}}/>
-              <YAxis type="category" dataKey="name" width={150} tick={{fill:C.muted,fontSize:10}}/>
-              <Tooltip formatter={v=>fmt(v)} contentStyle={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,fontSize:12}}/>
-              <Bar dataKey="total" name="Totale speso" radius={[0,3,3,0]} cursor="pointer">
-                {[...vendors].reverse().map((_,i)=>(
-                  <Cell key={i}
-                    fill={[...vendors].reverse()[i]?.name===selVendor?"#60a5fa":PASTEL[i%PASTEL.length]}
-                    opacity={selVendor&&[...vendors].reverse()[i]?.name!==selVendor?0.5:1}
-                  />
-                ))}
+              <XAxis type="number" tickFormatter={fmtK} tick={{fill:C.muted,fontSize:13}} tickLine={false}/>
+              <YAxis type="category" dataKey="name" width={160} tick={{fill:C.text,fontSize:13,fontWeight:500}}/>
+              <Tooltip formatter={v=>fmt(v)} contentStyle={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,fontSize:13}}/>
+              <Bar dataKey="total" name="Totale speso" radius={[0,4,4,0]} cursor="pointer"
+                label={{position:"right",formatter:v=>fmt(v),fontSize:12,fill:C.muted,fontWeight:600}}>
+                {[...vendors].reverse().map((_,i)=>{
+                  const nm=[...vendors].reverse()[i]?.name;
+                  return<Cell key={i} fill={nm===selVendor?"#60a5fa":PASTEL[i%PASTEL.length]} opacity={selVendor&&nm!==selVendor?0.4:1}/>;
+                })}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
         </Box>
         {/* Vendor trend */}
-        <Box title={selVendor?(selYear&&selMonth?`Andamento giornaliero ${MONTHS_IT[selMonth-1]} ${selYear}: ${selVendor}`:selYear?`Andamento ${selYear}: ${selVendor}`:`Andamento storico: ${selVendor}`):"← Seleziona un fornitore"} minH={460}>
+        <Box title={selVendor?(selYear&&selMonth?`📅 Giorni ${MONTHS_IT[selMonth-1]} ${selYear}: ${selVendor}`:selYear?`📅 Mesi ${selYear}: ${selVendor}`:`📅 Anni: ${selVendor}`):"📅 Andamento fornitore"} minH={460}>
           {!selVendor?(
             <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:200,color:C.faint,fontSize:13,textAlign:"center",flexDirection:"column",gap:8}}>
               <div style={{fontSize:32}}>👈</div>
@@ -1031,13 +1119,24 @@ function FornitoriTab({allTxs,filteredTxs,selYear,selMonth}){
                 </div>
               )}
               <ResponsiveContainer width="100%" height={280}>
-                <BarChart data={vendorTrend}>
-                  <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
-                  <XAxis dataKey="label" tick={{fill:C.muted,fontSize:9}} interval={vendorTrend.length>24?3:0}/>
-                  <YAxis tickFormatter={fmtK} tick={{fill:C.muted,fontSize:10}}/>
-                  <Tooltip content={<Tip/>}/>
-                  <Bar dataKey="value" name="Speso" fill="#93c5fd" radius={[2,2,0,0]}/>
-                </BarChart>
+                {selYear&&selMonth?(
+                  <AreaChart data={vendorTrend}>
+                    <defs><linearGradient id="gV" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#60a5fa" stopOpacity={0.3}/><stop offset="95%" stopColor="#60a5fa" stopOpacity={0}/></linearGradient></defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+                    <XAxis dataKey="label" tick={{fill:C.muted,fontSize:12}} interval={0}/>
+                    <YAxis tickFormatter={fmtK} tick={{fill:C.muted,fontSize:12}}/>
+                    <Tooltip content={<Tip/>}/>
+                    <Area type="monotone" dataKey="value" name="Speso" stroke="#60a5fa" fill="url(#gV)" strokeWidth={2.5} dot={{fill:"#60a5fa",r:3}} activeDot={{r:5}}/>
+                  </AreaChart>
+                ):(
+                  <BarChart data={vendorTrend}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+                    <XAxis dataKey="label" tick={{fill:C.muted,fontSize:12}} interval={vendorTrend.length>12?2:0}/>
+                    <YAxis tickFormatter={fmtK} tick={{fill:C.muted,fontSize:12}}/>
+                    <Tooltip content={<Tip/>}/>
+                    <Bar dataKey="value" name="Speso" fill="#93c5fd" radius={[3,3,0,0]} label={{position:"top",formatter:v=>v>0?fmtK(v):"",fontSize:11,fill:C.muted}}/>
+                  </BarChart>
+                )}
               </ResponsiveContainer>
               {vendorTrend.length>0&&(
                 <div style={{marginTop:10}}>
