@@ -323,7 +323,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v7.0 · 19 mag 2025";
+const VERSION="v7.1 · 19 mag 2025";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",maximumFractionDigits:0}).format(n||0);
@@ -947,19 +947,19 @@ function CategorieTab({txs,excInvest,selYear,selMonth}){
         </div>
       )}
 
-      {/* Barre a SX, Donut a DX */}
-      <div className="grid2">
+      {/* 3 colonne: Barre | Ciambella | Fornitori */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 280px",gap:16,alignItems:"start"}}>
         {/* BARRE — sinistra */}
         <Box title="Totale per categoria — clicca per selezionare">
-          <ResponsiveContainer width="100%" height={Math.max(400,catData.length*36)}>
-            <BarChart data={[...catData].reverse()} layout="vertical" margin={{right:70}}
+          <ResponsiveContainer width="100%" height={Math.max(400,catData.length*32)}>
+            <BarChart data={[...catData].reverse()} layout="vertical" margin={{right:65}}
               onClick={d=>{if(d?.activePayload?.[0])setSelCat(s=>s===d.activePayload[0].payload.name?null:d.activePayload[0].payload.name);}}>
               <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
-              <XAxis type="number" tickFormatter={fmtK} tick={{fill:C.muted,fontSize:13}} tickLine={false}/>
-              <YAxis type="category" dataKey="name" width={150} tick={{fill:C.text,fontSize:13,fontWeight:500}}/>
-              <Tooltip formatter={v=>fmt(v)} contentStyle={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,fontSize:13}}/>
+              <XAxis type="number" tickFormatter={fmtK} tick={{fill:C.muted,fontSize:12}} tickLine={false}/>
+              <YAxis type="category" dataKey="name" width={140} tick={{fill:C.text,fontSize:12,fontWeight:500}}/>
+              <Tooltip formatter={v=>fmt(v)} contentStyle={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,fontSize:12}}/>
               <Bar dataKey="value" name="Totale" radius={[0,4,4,0]} style={{cursor:"pointer"}}
-                label={{position:"right",formatter:v=>fmt(v),fontSize:12,fill:C.muted,fontWeight:600}}>
+                label={{position:"right",formatter:v=>fmt(v),fontSize:11,fill:C.muted,fontWeight:600}}>
                 {[...catData].reverse().map((_,i)=>{
                   const name=[...catData].reverse()[i].name;
                   return<Cell key={i} fill={PASTEL[(catData.length-1-i)%PASTEL.length]} opacity={selCat&&name!==selCat?0.3:1}/>;
@@ -969,22 +969,22 @@ function CategorieTab({txs,excInvest,selYear,selMonth}){
           </ResponsiveContainer>
         </Box>
 
-        {/* DONUT — destra, grande, etichette esterne */}
+        {/* DONUT — centro */}
         <Box title="Distribuzione — clicca per selezionare">
-          <ResponsiveContainer width="100%" height={Math.max(400,catData.length*36)}>
+          <ResponsiveContainer width="100%" height={Math.max(400,catData.length*32)}>
             <PieChart onClick={d=>{if(d?.activePayload?.[0])setSelCat(s=>s===d.activePayload[0].name?null:d.activePayload[0].name);}}>
               <Pie data={catData} dataKey="value" nameKey="name"
-                cx="50%" cy="50%" innerRadius="30%" outerRadius="62%"
+                cx="50%" cy="50%" innerRadius="28%" outerRadius="58%"
                 paddingAngle={2} style={{cursor:"pointer"}}
                 label={({name,value,percent,cx,cy,midAngle,innerRadius,outerRadius})=>{
-                  if(percent<0.03)return null; // nascondi etichette < 3%
+                  if(percent<0.04)return null;
                   const RADIAN=Math.PI/180;
-                  const radius=outerRadius*1.25;
+                  const radius=outerRadius*1.22;
                   const x=cx+radius*Math.cos(-midAngle*RADIAN);
                   const y=cy+radius*Math.sin(-midAngle*RADIAN);
-                  const short=name.length>14?name.slice(0,13)+"…":name;
+                  const short=name.length>12?name.slice(0,11)+"…":name;
                   return(
-                    <text x={x} y={y} fill={C.text} textAnchor={x>cx?"start":"end"} dominantBaseline="central" fontSize={11} fontWeight={600}>
+                    <text x={x} y={y} fill={C.text} textAnchor={x>cx?"start":"end"} dominantBaseline="central" fontSize={10} fontWeight={600}>
                       {short}: {fmt(value)}
                     </text>
                   );
@@ -992,9 +992,42 @@ function CategorieTab({txs,excInvest,selYear,selMonth}){
                 labelLine={{stroke:C.faint,strokeWidth:1}}>
                 {catData.map((_,i)=><Cell key={i} fill={PASTEL[i%PASTEL.length]} opacity={selCat&&catData[i].name!==selCat?0.3:1}/>)}
               </Pie>
-              <Tooltip formatter={v=>fmt(v)} contentStyle={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,fontSize:13}}/>
+              <Tooltip formatter={v=>fmt(v)} contentStyle={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,fontSize:12}}/>
             </PieChart>
           </ResponsiveContainer>
+        </Box>
+
+        {/* FORNITORI categoria selezionata — destra */}
+        <Box title={selCat?`Fornitori: ${selCat}`:"Fornitori"}>
+          {!selCat?(
+            <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:200,color:C.faint,gap:10}}>
+              <div style={{fontSize:28}}>👈</div>
+              <div style={{fontSize:12,textAlign:"center"}}>Seleziona una categoria</div>
+            </div>
+          ):(()=>{
+            // Aggrega vendor per categoria selezionata
+            const vendors={};
+            txs.filter(t=>t.uscita>0&&t.categoria===selCat).forEach(t=>{
+              const v=t.vendor||"N/D";
+              vendors[v]=(vendors[v]||0)+t.uscita;
+            });
+            const sorted=Object.entries(vendors).sort((a,b)=>b[1]-a[1]);
+            const total=sorted.reduce((s,[,v])=>s+v,0);
+            return(
+              <div style={{display:"flex",flexDirection:"column",gap:0}}>
+                {sorted.map(([name,val],i)=>(
+                  <div key={i} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 4px",borderBottom:`1px solid ${C.border}`,fontSize:12}}>
+                    <div style={{width:8,height:8,borderRadius:2,background:PASTEL[i%PASTEL.length],flexShrink:0}}/>
+                    <span style={{flex:1,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={name}>{name}</span>
+                    <span style={{fontWeight:700,color:C.text,whiteSpace:"nowrap"}}>{fmt(val)}</span>
+                  </div>
+                ))}
+                <div style={{display:"flex",justifyContent:"space-between",padding:"8px 4px",marginTop:4,fontWeight:700,fontSize:12,color:"#3b82f6",borderTop:`2px solid ${C.border}`}}>
+                  <span>Totale</span><span>{fmt(total)}</span>
+                </div>
+              </div>
+            );
+          })()}
         </Box>
       </div>
 
