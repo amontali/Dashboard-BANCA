@@ -323,7 +323,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v6.6 · 19 mag 2025";
+const VERSION="v6.7 · 19 mag 2025";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",maximumFractionDigits:0}).format(n||0);
@@ -1704,7 +1704,7 @@ function App(){
   async function handleFullReimport(e){
     const files=Array.from(e.target.files);
     if(!files.length)return;
-    if(!window.confirm(`ATTENZIONE: questo cancellerà TUTTE le ${txs.length} transazioni esistenti e le reimporterà dai ${files.length} file selezionati.\n\nContinuare?`)){e.target.value="";return;}
+    if(!window.confirm(`⚠️ ATTENZIONE — Operazione irreversibile.\n\nL'intero database verrà azzerato e sostituito con i ${files.length} file che hai selezionato.\nTutte le ${txs.length} transazioni attuali andranno perse.\n\nLe tue regole di categorizzazione e le categorie personalizzate rimarranno intatte.\n\nContinuare?`)){e.target.value="";return;}
     setSyncing(true);
     setMsg("🗑️ Cancello dati esistenti...");
     lsSave([]);setTxs([]);
@@ -1753,10 +1753,20 @@ function App(){
               <div style={{color:C.muted,fontSize:10}}>{txs.length.toLocaleString()} transazioni · <strong style={{color:"#60a5fa"}}>{periodLabel}</strong><span style={{marginLeft:8,background:"#f0fdf4",color:"#16a34a",borderRadius:4,padding:"1px 6px",fontSize:9,fontWeight:700,letterSpacing:0.5}}>{VERSION}</span></div>
             </div>
             <label title="Aggiungi nuove transazioni (salta duplicati)" style={{background:"#60a5fa",color:"#fff",borderRadius:8,padding:"7px 12px",cursor:syncing?"not-allowed":"pointer",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:4,opacity:syncing?0.6:1}}>
-              📂 Aggiungi<input type="file" accept=".csv" multiple onChange={handleUpload} style={{display:"none"}} disabled={syncing}/>
+              📂 Aggiungi<input type="file" accept=".csv" multiple disabled={syncing}
+                onChange={e=>{
+                  if(!e.target.files.length)return;
+                  alert("Usa questa funzione per aggiungere nuovi record da una nuova estrazione della tua banca.\n\nI dati verranno accodati al database esistente.\n\nAttenzione: se carichi un file già importato in precedenza, le transazioni risulteranno duplicate.");
+                  handleUpload(e);
+                }} style={{display:"none"}}/>
             </label>
             <label title="Sostituisce i dati del periodo coperto dal file — utile per reimportare un trimestre" style={{background:"#fef3c7",color:"#b45309",border:"1px solid #fcd34d",borderRadius:8,padding:"7px 12px",cursor:syncing?"not-allowed":"pointer",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:4,opacity:syncing?0.6:1}}>
-              🔁 Sostituisci<input type="file" accept=".csv" multiple onChange={handleReplaceByPeriod} style={{display:"none"}} disabled={syncing}/>
+              🔁 Sostituisci<input type="file" accept=".csv" multiple disabled={syncing}
+                onChange={e=>{
+                  if(!e.target.files.length)return;
+                  alert("Usa questa funzione per ricaricare un\'estrazione che avevi già importato.\n\nLe transazioni con lo stesso intervallo di date verranno eliminate e sostituite con quelle del nuovo file.\n\nLe transazioni di altri periodi non vengono toccate.");
+                  handleReplaceByPeriod(e);
+                }} style={{display:"none"}}/>
             </label>
             <label title="Cancella tutto e reimporta da zero (seleziona TUTTI i file CSV)" style={{background:"#fee2e2",color:"#dc2626",border:"1px solid #fca5a5",borderRadius:8,padding:"7px 12px",cursor:syncing?"not-allowed":"pointer",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:4,opacity:syncing?0.6:1}}>
               ♻️ Tutto<input type="file" accept=".csv" multiple onChange={handleFullReimport} style={{display:"none"}} disabled={syncing}/>
