@@ -288,8 +288,8 @@ Rispondi SOLO con un JSON array, niente altro:
   const clean=text.replace(/```json|```/g,"").trim();
   return JSON.parse(clean);
 }
-function catsGet(){try{const d=localStorage.getItem("userCats");return d?JSON.parse(d):[...CATS]}catch{return[...CATS]}}
-function catsSave(c){try{localStorage.setItem("userCats",JSON.stringify(c))}catch{}}
+function catsGet(){try{const d=localStorage.getItem("userCats");const arr=d?JSON.parse(d):[...CATS];return arr.sort((a,b)=>a.localeCompare(b,"it"))}catch{return[...CATS].sort((a,b)=>a.localeCompare(b,"it"))}}
+function catsSave(c){try{localStorage.setItem("userCats",JSON.stringify([...c].sort((a,b)=>a.localeCompare(b,"it"))))}catch{}}
 function aliasGet(){try{return JSON.parse(localStorage.getItem("catAliases")||"{}")}catch{return{}}}
 function aliasSave(a){try{localStorage.setItem("catAliases",JSON.stringify(a))}catch{}}
 function applyAlias(cat){const a=aliasGet();return a[cat]||cat;}
@@ -323,7 +323,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v6.5 · 19 mag 2025";
+const VERSION="v6.6 · 19 mag 2025";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",maximumFractionDigits:0}).format(n||0);
@@ -348,7 +348,9 @@ function normDate(v){
 
 // ── LOCALSTORAGE ──────────────────────────────────────────────────────────────
 const lsGet=()=>{try{const d=localStorage.getItem("txs");return d?JSON.parse(d):[]}catch{return[]}};
-const lsSave=rows=>{try{localStorage.setItem("txs",JSON.stringify(rows))}catch{}};
+const lsSave=rows=>{try{localStorage.setItem("txs",JSON.stringify(rows))}catch(e){console.warn("localStorage pieno:",e);}};
+function lsSize(){try{let t=0;for(const k in localStorage)if(localStorage.hasOwnProperty(k))t+=localStorage[k].length*2;return t;}catch{return 0;}}
+const LS_WARN=4*1024*1024; // avviso se >4MB
 
 // ── VENDOR PIPELINE ─────────────────────────────────────────────────────────
 // Pipeline: ESTRAI → NORMALIZZA → CATEGORIZZA (3 stadi chiari, nessun workaround)
@@ -475,12 +477,14 @@ function categorize(caus,desc){
   if(/BRICOMAN|IKEA|LEROY MERLIN/.test(c))return"Casa / Brico";
   if(/COMPRAVENDITA TITOLI|TRADING|FONDI|VENDITA FONDI|ACQUISTO FONDI|TITOLI/.test(c))return"📈 Investimenti";
   if(/IMPOSTA DI BOLLO TRADING|BOLLI GOVERN|IMPOSTE E TASSE|PAGAMENTO F24|BOLLO AUTO/.test(c))return"Tasse";
-  if(/IMPOSTA DI BOLLO|INTERESSI E COMPETENZE|COMMISSIONE/.test(c))return"Spese Bancarie";
-  if(/GIROCONTO|CARTA CREDITO ING|ADDEBITO CARTA DI CREDITO/.test(c))return"Carta di Credito";
+  if(/IMPOSTA DI BOLLO|INTERESSI E COMPETENZE|COMMISSIONE|CANONE.*CARTA|CANONE.*CONTO|TENUTA.*CONTO|SPESE TENUTA|CANONE ANNUO|CANONE MENSILE/.test(c))return"Spese Bancarie";
+  if(/GIROCONTO/.test(c))return"💰 Giro Interno";
+  if(/CARTA CREDITO ING|ADDEBITO CARTA DI CREDITO/.test(c))return"Carta di Credito";
   if(/ADDEBITO MAV|ADDEBITO SDD|ADDEBITO DIRETTO/.test(c))return"Rate / Dom.";
   if(/STIPENDIO|DHL EXPRESS|EMOLUMENTI/.test(c))return"Stipendio";
+  if(/OUTLET.*CARBURANT|STAZIONE.*SERVIZIO|DISTRIBUTORE/.test(c))return"Carburante";
   if(/BONIFICO|SEPA/.test(c))return"Bonifici";
-  if(/BANCOMAT|PRELIEVO/.test(c))return"Prelievi ATM";
+  if(/PRELIEVO CONTANTE|BANCOMAT|PRELIEVO/.test(c))return"Prelievi ATM";
   return"Altro";
 }
 function parseCSV(text){
@@ -1256,6 +1260,9 @@ function RulesTab({gsUrl,txs,onRulesChange}){
   const [apiKey,setApiKey]=useState(()=>apiKeyGet());
   const [classifying,setClassifying]=useState(false);
   const [classifyStatus,setClassifyStatus]=useState("");
+  const [editRuleId,setEditRuleId]=useState(null);
+  const [editRuleData,setEditRuleData]=useState({});
+  const [catSavedMsg,setCatSavedMsg]=useState("");
   const [pattern,setPattern]=useState("");
   const [name,setName]=useState("");
   const [cat,setCat]=useState(()=>catsGet()[0]||"Supermercato");
@@ -1335,6 +1342,7 @@ function RulesTab({gsUrl,txs,onRulesChange}){
     const n=newCatName.trim();
     if(!n||cats.includes(n))return;
     const upd=[...cats,n];setCats(upd);catsSave(upd);setNewCatName("");notify();
+    setCatSavedMsg(`✓ "${n}" aggiunta`);setTimeout(()=>setCatSavedMsg(""),2500);
   }
   function startEdit(c){setEditCat(c);setEditName(c);}
   function confirmRename(){
@@ -1372,6 +1380,12 @@ Tutte le transazioni verranno spostate in "Altro".`))return;
   function delRule(id){
     const r=rules.filter(x=>x.id!==id);
     setRules(r);rulesSave(r);notify();
+  }
+  function startEditRule(r){setEditRuleId(r.id);setEditRuleData({pattern:r.pattern,name:r.name||"",category:r.category});}
+  function saveEditRule(){
+    if(!editRuleData.pattern?.trim()){setEditRuleId(null);return;}
+    const r=rules.map(x=>x.id===editRuleId?{...x,pattern:editRuleData.pattern.trim(),name:editRuleData.name.trim()||null,category:editRuleData.category}:x);
+    setRules(r);rulesSave(r);notify();setEditRuleId(null);
   }
 
   const SectionBtn=({id,label})=>(
@@ -1427,6 +1441,7 @@ Tutte le transazioni verranno spostate in "Altro".`))return;
               placeholder="Nuova categoria..."
               style={{flex:1,minWidth:160,padding:"8px 12px",border:`1px solid ${C.border}`,borderRadius:6,fontSize:13}}/>
             <button onClick={addCat} style={{background:"#60a5fa",color:"#fff",border:"none",borderRadius:6,padding:"8px 18px",cursor:"pointer",fontWeight:700,fontSize:13}}>+ Aggiungi</button>
+            {catSavedMsg&&<span style={{fontSize:12,color:"#16a34a",fontWeight:600}}>{catSavedMsg}</span>}
             <button onClick={resetCats} style={{background:"#f1f5f9",color:C.muted,border:`1px solid ${C.border}`,borderRadius:6,padding:"8px 14px",cursor:"pointer",fontSize:12}}>↺ Ripristina default</button>
           </div>
         </Box>
@@ -1497,13 +1512,32 @@ Tutte le transazioni verranno spostate in "Altro".`))return;
             </thead>
             <tbody>
               {rules.map(r=>(
-                <tr key={r.id} style={{borderBottom:`1px solid ${C.border}`}}
-                  onMouseEnter={e=>e.currentTarget.style.background="#f8fafc"}
-                  onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                  <td style={{padding:"9px 10px",fontFamily:"monospace",color:"#7c3aed"}}>{r.pattern}</td>
-                  <td style={{padding:"9px 10px",color:C.text}}>{r.name||<span style={{color:C.faint}}>(usa nome estratto)</span>}</td>
-                  <td style={{padding:"9px 10px"}}><span style={{background:"#eff6ff",color:"#3b82f6",borderRadius:4,padding:"2px 8px",fontSize:11,fontWeight:600}}>{r.category}</span></td>
-                  <td style={{padding:"9px 10px"}}><button onClick={()=>delRule(r.id)} style={{background:"#fee2e2",color:"#dc2626",border:"none",borderRadius:4,padding:"3px 10px",cursor:"pointer",fontSize:12}}>✕</button></td>
+                <tr key={r.id} style={{borderBottom:`1px solid ${C.border}`,background:editRuleId===r.id?"#f0f9ff":"transparent"}}
+                  onMouseEnter={e=>{if(editRuleId!==r.id)e.currentTarget.style.background="#f8fafc"}}
+                  onMouseLeave={e=>{if(editRuleId!==r.id)e.currentTarget.style.background="transparent"}}>
+                  {editRuleId===r.id?(
+                    <>
+                      <td style={{padding:"6px 8px"}}><input value={editRuleData.pattern} onChange={e=>setEditRuleData({...editRuleData,pattern:e.target.value})} style={{width:"100%",padding:"4px 8px",border:"1px solid #60a5fa",borderRadius:4,fontSize:12,fontFamily:"monospace"}}/></td>
+                      <td style={{padding:"6px 8px"}}><input value={editRuleData.name} onChange={e=>setEditRuleData({...editRuleData,name:e.target.value})} placeholder="(usa nome estratto)" style={{width:"100%",padding:"4px 8px",border:"1px solid #60a5fa",borderRadius:4,fontSize:12}}/></td>
+                      <td style={{padding:"6px 8px"}}><select value={editRuleData.category} onChange={e=>setEditRuleData({...editRuleData,category:e.target.value})} style={{padding:"4px 8px",border:"1px solid #60a5fa",borderRadius:4,fontSize:12}}>
+                        {catsGet().map(c=><option key={c} value={c}>{c}</option>)}
+                      </select></td>
+                      <td style={{padding:"6px 8px",display:"flex",gap:4}}>
+                        <button onClick={saveEditRule} style={{background:"#4ade80",color:"#fff",border:"none",borderRadius:4,padding:"3px 10px",cursor:"pointer",fontSize:12,fontWeight:700}}>✓</button>
+                        <button onClick={()=>setEditRuleId(null)} style={{background:"#e2e8f0",color:C.muted,border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:12}}>✕</button>
+                      </td>
+                    </>
+                  ):(
+                    <>
+                      <td style={{padding:"9px 10px",fontFamily:"monospace",color:"#7c3aed"}}>{r.pattern}</td>
+                      <td style={{padding:"9px 10px",color:C.text}}>{r.name||<span style={{color:C.faint}}>(usa nome estratto)</span>}</td>
+                      <td style={{padding:"9px 10px"}}><span style={{background:"#eff6ff",color:"#3b82f6",borderRadius:4,padding:"2px 8px",fontSize:11,fontWeight:600}}>{r.category}</span></td>
+                      <td style={{padding:"9px 10px",display:"flex",gap:4}}>
+                        <button onClick={()=>startEditRule(r)} style={{background:"#eff6ff",color:"#3b82f6",border:"1px solid #bfdbfe",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11}}>✏️</button>
+                        <button onClick={()=>delRule(r.id)} style={{background:"#fee2e2",color:"#dc2626",border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:12}}>✕</button>
+                      </td>
+                    </>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -1626,6 +1660,8 @@ function App(){
     const newRows=await parseFiles(files);
     const existKeys=new Set(txs.map(t=>`${t.date}|${t.uscita}|${t.entrata}|${t.causale}`));
     const toAdd=newRows.filter(t=>!existKeys.has(`${t.date}|${t.uscita}|${t.entrata}|${t.causale}`));
+    setMsg(`📊 Trovate ${newRows.length} transazioni · ${toAdd.length} nuove · ${newRows.length-toAdd.length} già presenti`);
+    await new Promise(r=>setTimeout(r,1500));
     if(!toAdd.length){setMsg("ℹ️ Nessuna transazione nuova (duplicati già presenti).");setTimeout(()=>setMsg(""),4000);return;}
     const merged=[...txs,...toAdd].sort((a,b)=>a.date.localeCompare(b.date));
     setTxs(merged);lsSave(merged);
@@ -1670,17 +1706,21 @@ function App(){
     if(!files.length)return;
     if(!window.confirm(`ATTENZIONE: questo cancellerà TUTTE le ${txs.length} transazioni esistenti e le reimporterà dai ${files.length} file selezionati.\n\nContinuare?`)){e.target.value="";return;}
     setSyncing(true);
-    setMsg("🗑️ Cancello tutto...");
+    setMsg("🗑️ Cancello dati esistenti...");
     lsSave([]);setTxs([]);
     try{await gsClear(url);}catch{}
+    setMsg(`⏳ Leggo ${files.length} file CSV...`);
     const newRows=await parseFiles(files);
     const sorted=newRows.sort((a,b)=>a.date.localeCompare(b.date));
+    setMsg(`✅ ${sorted.length} transazioni importate · Sincronizzazione Google Sheets in corso — non chiudere la pagina...`);
     setTxs(sorted);lsSave(sorted);
-    setMsg(`📤 Salvo ${sorted.length} transazioni...`);
+    // Check localStorage size
+    const sz=lsSize();
+    if(sz>LS_WARN)setMsg(`⚠️ Attenzione: localStorage al ${Math.round(sz/1024/1024*10)/10}MB su ~5MB. Considera di svuotare la cache.`);
     try{
-      await gsWrite(url,sorted,(done,tot)=>setMsg(`☁️ Google Sheets: ${done}/${tot} blocchi · ${Math.round(done/tot*100)}%`));
-      setMsg(`✅ Reimport completo · ${sorted.length} transazioni.`);
-    }catch{setMsg("⚠️ Salvato solo in locale.");}
+      await gsWrite(url,sorted,(done,tot)=>setMsg(`☁️ Sheets: ${done}/${tot} blocchi (${Math.round(done/tot*100)}%) — non chiudere la pagina`));
+      setMsg(`✅ Reimport completo · ${sorted.length} transazioni · Sheets aggiornato.`);
+    }catch{setMsg(`✅ ${sorted.length} transazioni importate (solo locale — Sheets non aggiornato).`);}
     setSyncing(false);setTimeout(()=>setMsg(""),6000);e.target.value="";
   }
 
@@ -1727,7 +1767,13 @@ function App(){
         </div>
 
         {/* STATUS */}
-        {msg&&<div style={{background:"#eff6ff",borderBottom:"1px solid #bfdbfe",padding:"7px 16px",fontSize:12,color:"#3b82f6",textAlign:"center",flexShrink:0}}>{msg}</div>}
+        {msg&&<div style={{
+          background:msg.includes("non chiudere")?"#fef3c7":msg.includes("✅")?"#f0fdf4":msg.includes("⚠️")?"#fff7ed":"#eff6ff",
+          borderBottom:`1px solid ${msg.includes("non chiudere")?"#fde68a":msg.includes("✅")?"#86efac":msg.includes("⚠️")?"#fed7aa":"#bfdbfe"}`,
+          padding:"8px 16px",fontSize:12,
+          color:msg.includes("non chiudere")?"#92400e":msg.includes("✅")?"#166534":msg.includes("⚠️")?"#9a3412":"#3b82f6",
+          textAlign:"center",flexShrink:0,fontWeight:msg.includes("non chiudere")?700:400
+        }}>{msg}</div>}
 
         {/* MOBILE YEAR/MONTH FILTER */}
         <div className="sidebar-mobile" style={{background:C.sidebar,borderBottom:`1px solid ${C.border}`,padding:"8px 12px",gap:6,overflowX:"auto",flexShrink:0,alignItems:"center"}}>
