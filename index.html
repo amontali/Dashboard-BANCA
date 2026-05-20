@@ -341,12 +341,12 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v8.6.3 · 20 mag 2025";
+const VERSION="v8.7 · 20 mag 2026";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
-const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",maximumFractionDigits:0}).format(n||0);
-const fmtK=n=>`€${Math.abs(n)>=1000?(n/1000).toFixed(0)+"k":Math.round(n)}`;
-const fmtKS=n=>`€${Math.abs(n)>=1000?(n/1000).toFixed(1)+"k":Math.round(n)}`;
+const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",minimumFractionDigits:0,maximumFractionDigits:0,useGrouping:true}).format(n||0);
+const fmtK=n=>new Intl.NumberFormat('it-IT',{style:'currency',currency:'EUR',maximumFractionDigits:0}).format(n||0);
+const fmtKS=n=>new Intl.NumberFormat('it-IT',{style:'currency',currency:'EUR',maximumFractionDigits:0}).format(n||0);
 // "2015-01" → "Gen/15"
 const fmtYm=ym=>{try{const[y,m]=String(ym).split("-");return MONTHS_IT[parseInt(m,10)-1]+"/"+y.slice(2);}catch{return ym;}};
 // Normalizza date da Google Sheets (potrebbero arrivare come Date object o stringa diversa)
@@ -514,6 +514,40 @@ function categorize(caus,desc){
   if(/PRELIEVO CONTANTE|BANCOMAT|PRELIEVO/.test(c))return"Prelievi ATM";
   return"Altro";
 }
+
+// ── RILEVAMENTO METODO DI PAGAMENTO ──────────────────────────────────────────
+function detectMetodo(causale, desc){
+  const c=((causale||"")+" "+(desc||"")).toUpperCase();
+  if(/PRELIEVO|ATM.*BANCOMAT|BANCOMAT.*PRELIEVO/.test(c)) return "Prelievo ATM";
+  if(/PAGAMENTO F24|MODELLO F24|DELEGA F24|F24/.test(c)) return "F24";
+  if(/ADDEBITO MAV|PAGAMENTO MAV|BOLLETTINO MAV|\bMAV\b/.test(c)) return "MAV/RAV";
+  if(/ADDEBITO RAV|\bRAV\b/.test(c)) return "MAV/RAV";
+  if(/ADDEBITO SDD CORE|ADDEBITO SDD/.test(c)) return "Domiciliazione SDD";
+  if(/ADDEBITO DIRETTO|ADDEBITO UTENZA/.test(c)) return "Domiciliazione SDD";
+  if(/GIROCONTO|GIRO.*CONTO/.test(c)) return "Giroconto";
+  if(/BONIFICO|SEPA.*CREDIT|ACCREDITO SEPA|DISPOSIZIONE/.test(c)) return "Bonifico";
+  if(/OPERAZIONE VPAY|PAGOBANCOMAT|MASTERCARD|CARTA.*CREDITO|CONTACTLESS|C-LESS|PRESSO/.test(c)) return "Carta";
+  if(/COMMISSIONE|CANONE|BOLLO|SPESE TENUTA|IMPOSTA/.test(c)) return "Spese Bancarie";
+  if(/STIPENDIO|EMOLUMENTI/.test(c)) return "Stipendio";
+  return "Altro";
+}
+
+
+// ── ESTRAZIONE METODO DI PAGAMENTO ────────────────────────────────────────────
+function extractMetodo(causale, desc){
+  const c=(causale+" "+desc).toUpperCase();
+  if(/ADDEBITO\s+MAV|ADDEBITO\s+RAV|PAGAMENTO\s+MAV/.test(c))return"MAV/RAV";
+  if(/PAGAMENTO\s+F24|\bF24\b/.test(c))return"F24";
+  if(/ADDEBITO\s+SDD|ADDEBITO\s+DIRETTO|DOMICILIAZIONE/.test(c))return"SDD/Domicil.";
+  if(/GIROCONTO|GIRO\s+CONTO|CONTO\s+DEPOSITO/.test(c))return"Giroconto";
+  if(/PRELIEVO\s+CONTANTE|PRELIEVO\s+ATM|BANCOMAT(?!\s+POS)/.test(c))return"Contanti";
+  if(/PAGAMENTO\s+POS|PAGOBANCOMAT|MASTERCARD|VISA|C-LESS|CONTACTLESS|OPERAZIONE\s+VPAY/.test(c))return"Carta";
+  if(/BONIFICO|SEPA|VIREMENT|A\s+FAVORE\s+DI/.test(c))return"Bonifico";
+  if(/IMPOSTA\s+DI\s+BOLLO|CANONE|COMMISSIONE|INTERESSI|SPESE\s+TENUTA/.test(c))return"Spesa Bancaria";
+  if(/STIPENDIO|EMOLUMENTI|ACCREDITO\s+STIPENDIO/.test(c))return"Accredito";
+  return"Altro";
+}
+
 function parseCSV(text, balanceMap={}){
   const rows=[];
   for(const line of text.trim().split("\n").slice(1)){
@@ -540,7 +574,8 @@ function parseCSV(text, balanceMap={}){
         uscita:uscita>0?uscita:0,entrata:entrata>0?entrata:0,
         causale:caus,descrizione:desc,
         categoria:cl.categoria,
-        vendor:cl.vendor
+        vendor:cl.vendor,
+        metodo:extractMetodo(caus,desc)
       });
     }catch{continue;}
   }
@@ -728,11 +763,11 @@ function ok(data){
 function Tip({active,payload,label}){
   if(!active||!payload?.length)return null;
   return(
-    <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 14px",fontSize:12,boxShadow:"0 4px 16px rgba(0,0,0,.08)"}}>
-      <p style={{color:C.muted,marginBottom:6,fontWeight:600}}>{label}</p>
+    <div style={{background:"#1e293b",border:"none",borderRadius:8,padding:"10px 14px",fontSize:13,boxShadow:"0 4px 16px rgba(0,0,0,.25)"}}>
+      <p style={{color:"#94a3b8",marginBottom:6,fontWeight:600,fontSize:11}}>{label}</p>
       {payload.map((p,i)=>(
-        <div key={i} style={{color:p.color||C.text,display:"flex",justifyContent:"space-between",gap:16}}>
-          <span>{p.name}</span><span style={{fontWeight:700}}>{fmt(p.value)}</span>
+        <div key={i} style={{color:"#fff",display:"flex",justifyContent:"space-between",gap:16}}>
+          <span style={{color:"#94a3b8"}}>{p.name}</span><span style={{fontWeight:700,color:"#fff"}}>{fmt(p.value)}</span>
         </div>
       ))}
     </div>
@@ -1147,6 +1182,12 @@ function CategorieTab({txs,excInvest,selYear,selMonth,onRuleAdded}){
 
   const H=Math.max(360,catData.length*30);
 
+  // ESC deselects
+  React.useEffect(()=>{
+    const handler=e=>{if(e.key==="Escape"){setSelCats([]);setInlineEdit(null);}};
+    window.addEventListener("keydown",handler);
+    return()=>window.removeEventListener("keydown",handler);
+  },[]);
   return(
     <>
     <div style={{display:"flex",flexDirection:"column",gap:16}}>
@@ -1314,12 +1355,19 @@ function CategorieTab({txs,excInvest,selYear,selMonth,onRuleAdded}){
           onClick={e=>e.stopPropagation()}>
           <div style={{fontSize:17,fontWeight:800,color:"#1e40af",marginBottom:18}}>✏️ Crea regola di categorizzazione</div>
           <div style={{display:"flex",flexDirection:"column",gap:14}}>
-            <div>
-              <div style={{fontSize:11,color:C.muted,fontWeight:700,marginBottom:5}}>📅 DATA OPERAZIONE (modifica per riposizionare nel tempo)</div>
+            {/* DATA — effetto solo su questo record */}
+            <div style={{background:"#fffbeb",border:"1px solid #fde68a",borderRadius:8,padding:"12px 14px"}}>
+              <div style={{fontSize:11,color:"#92400e",fontWeight:700,marginBottom:5}}>📅 DATA OPERAZIONE</div>
               <input type="date" value={inlineEdit.date||""}
                 onChange={e=>setInlineEdit({...inlineEdit,date:e.target.value,_dateChanged:true})}
-                style={{width:"100%",padding:"9px 12px",border:`1px solid ${inlineEdit._dateChanged?"#f59e0b":"#93c5fd"}`,borderRadius:7,fontSize:14,boxSizing:"border-box"}}/>
-              {inlineEdit._dateChanged&&<div style={{fontSize:11,color:"#f59e0b",marginTop:4}}>⚠️ La data verrà modificata — la transazione si sposterà nel periodo corrispondente</div>}
+                style={{width:"100%",padding:"9px 12px",border:`1px solid ${inlineEdit._dateChanged?"#f59e0b":"#fcd34d"}`,borderRadius:7,fontSize:14,boxSizing:"border-box"}}/>
+              <div style={{fontSize:11,color:"#92400e",marginTop:6,lineHeight:1.5}}>⚠️ Modifica solo questa transazione — non crea regole, non tocca altri record.</div>
+            </div>
+            {/* SEPARATORE */}
+            <div style={{display:"flex",alignItems:"center",gap:8,margin:"4px 0"}}>
+              <div style={{flex:1,height:1,background:"#e2e8f0"}}/>
+              <span style={{fontSize:10,color:"#94a3b8",fontWeight:700,textTransform:"uppercase",letterSpacing:1}}>Regola categorizzazione (opzionale)</span>
+              <div style={{flex:1,height:1,background:"#e2e8f0"}}/>
             </div>
             <div>
               <div style={{fontSize:11,color:C.muted,fontWeight:700,marginBottom:5}}>PATTERN — parola chiave da cercare nel nome fornitore</div>
@@ -1945,6 +1993,301 @@ function Setup({onSave}){
 }
 
 // ── MAIN ──────────────────────────────────────────────────────────────────────
+// ── METODI DI PAGAMENTO TAB ───────────────────────────────────────────────────
+const METODI_COLORS={
+  "Carta":"#93c5fd","Bonifico":"#6ee7b7","Domiciliazione SDD":"#fcd34d",
+  "MAV/RAV":"#fdba74","F24":"#f87171","Prelievo ATM":"#c4b5fd",
+  "Giroconto":"#a5f3fc","Spese Bancarie":"#fca5a5","Stipendio":"#bbf7d0","Altro":"#cbd5e1"
+};
+
+function MetodiTab({txs,selYear,selMonth}){
+  const [selMetodo,setSelMetodo]=React.useState(null);
+  const [sortBy,setSortBy]=React.useState("date");
+
+  // Aggrega per metodo
+  const byMetodo=React.useMemo(()=>{
+    const map={};
+    txs.forEach(t=>{
+      const m=t.metodo||detectMetodo(t.causale,t.descrizione);
+      if(!map[m])map[m]={name:m,uscite:0,entrate:0,count:0,txs:[]};
+      map[m].uscite+=t.uscita;
+      map[m].entrate+=t.entrata;
+      map[m].count++;
+      map[m].txs.push(t);
+    });
+    return Object.values(map).sort((a,b)=>b.uscite-a.uscite);
+  },[txs]);
+
+  const tableRows=React.useMemo(()=>{
+    if(!selMetodo)return[];
+    const rows=txs.filter(t=>(t.metodo||detectMetodo(t.causale,t.descrizione))===selMetodo);
+    return sortBy==="date"?[...rows].sort((a,b)=>b.date.localeCompare(a.date)):[...rows].sort((a,b)=>b.uscita-a.uscita);
+  },[txs,selMetodo,sortBy]);
+
+  const trend=React.useMemo(()=>{
+    if(!selMetodo)return[];
+    const rows=txs.filter(t=>(t.metodo||detectMetodo(t.causale,t.descrizione))===selMetodo&&t.uscita>0);
+    const byYm={};
+    rows.forEach(t=>{byYm[t.ym]=(byYm[t.ym]||0)+t.uscita;});
+    return Object.entries(byYm).sort().map(([ym,v])=>({label:fmtYm(ym),value:Math.round(v)}));
+  },[txs,selMetodo]);
+
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:16}}>
+      {/* Summary cards */}
+      <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+        {byMetodo.map((m,i)=>(
+          <div key={i} onClick={()=>setSelMetodo(m.name===selMetodo?null:m.name)}
+            style={{background:selMetodo===m.name?"#1e293b":(METODI_COLORS[m.name]||"#f1f5f9"),
+              borderRadius:10,padding:"12px 16px",cursor:"pointer",flex:"1 1 140px",
+              border:`2px solid ${selMetodo===m.name?"#1e293b":"transparent"}`,
+              boxShadow:"0 1px 4px rgba(0,0,0,0.06)",transition:"all .15s"}}>
+            <div style={{fontSize:11,fontWeight:700,color:selMetodo===m.name?"#94a3b8":"#475569",
+              textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>{m.name}</div>
+            <div style={{fontSize:20,fontWeight:800,color:selMetodo===m.name?"#fff":"#1e293b"}}>{fmt(m.uscite)}</div>
+            <div style={{fontSize:11,color:selMetodo===m.name?"#64748b":"#64748b",marginTop:4}}>{m.count} operazioni</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Bar chart */}
+      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:16}}>
+        <h3 style={{margin:"0 0 12px",fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:1.2}}>Uscite per metodo di pagamento</h3>
+        <ResponsiveContainer width="100%" height={Math.max(280,byMetodo.length*40)}>
+          <BarChart data={[...byMetodo].reverse()} layout="vertical" margin={{right:80}}>
+            <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+            <XAxis type="number" tickFormatter={fmtK} tick={{fill:C.muted,fontSize:12}}/>
+            <YAxis type="category" dataKey="name" width={150} tick={{fill:C.text,fontSize:12,fontWeight:500}}/>
+            <Tooltip content={<Tip/>}/>
+            <Bar dataKey="uscite" name="Uscite" radius={[0,4,4,0]} cursor="pointer"
+              onClick={(d)=>setSelMetodo(d.name===selMetodo?null:d.name)}
+              label={{position:"right",formatter:v=>fmt(v),fontSize:11,fill:C.muted,fontWeight:600}}>
+              {[...byMetodo].reverse().map((m,i)=>(
+                <Cell key={i} fill={METODI_COLORS[m.name]||PASTEL[i%PASTEL.length]}
+                  opacity={selMetodo&&m.name!==selMetodo?0.4:1}/>
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Trend metodo selezionato */}
+      {selMetodo&&trend.length>0&&(
+        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:16}}>
+          <h3 style={{margin:"0 0 12px",fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:1.2}}>
+            📅 Andamento: {selMetodo}
+          </h3>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={trend}>
+              <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+              <XAxis dataKey="label" tick={{fill:C.muted,fontSize:10}} interval={trend.length>24?3:0}/>
+              <YAxis tickFormatter={fmtK} tick={{fill:C.muted,fontSize:10}}/>
+              <Tooltip content={<Tip/>}/>
+              <Bar dataKey="value" name={selMetodo} fill={METODI_COLORS[selMetodo]||"#93c5fd"} radius={[3,3,0,0]}/>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* Lista transazioni */}
+      {selMetodo&&tableRows.length>0&&(
+        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:16}}>
+          <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"center",flexWrap:"wrap"}}>
+            <h3 style={{margin:0,fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:1.2}}>
+              📋 {selMetodo} — {tableRows.length} transazioni
+            </h3>
+            <button onClick={()=>setSortBy("date")} style={{background:sortBy==="date"?"#60a5fa":"transparent",color:sortBy==="date"?"#fff":C.muted,border:`1px solid ${sortBy==="date"?"#60a5fa":C.border}`,borderRadius:5,padding:"3px 10px",cursor:"pointer",fontSize:11}}>Data ↓</button>
+            <button onClick={()=>setSortBy("amount")} style={{background:sortBy==="amount"?"#60a5fa":"transparent",color:sortBy==="amount"?"#fff":C.muted,border:`1px solid ${sortBy==="amount"?"#60a5fa":C.border}`,borderRadius:5,padding:"3px 10px",cursor:"pointer",fontSize:11}}>Importo ↓</button>
+            <span style={{marginLeft:"auto",fontSize:11,color:C.faint}}>Totale: <strong>{fmt(tableRows.reduce((s,t)=>s+t.uscita,0))}</strong></span>
+          </div>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:13,tableLayout:"auto",minWidth:600}}>
+              <thead>
+                <tr style={{borderBottom:`2px solid ${C.border}`,background:"#f8fafc"}}>
+                  {["Data","Categoria","Venditore","Descrizione","Importo"].map(h=>(
+                    <th key={h} style={{textAlign:h==="Importo"?"right":"left",padding:"7px 8px",color:C.muted,fontSize:10,fontWeight:700,textTransform:"uppercase"}}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {tableRows.map((t,i)=>(
+                  <tr key={i} style={{borderBottom:`1px solid ${C.border}`}}
+                    onMouseEnter={e=>e.currentTarget.style.background="#f8fafc"}
+                    onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                    <td style={{padding:"5px 8px",color:C.muted,whiteSpace:"nowrap",fontSize:12}}>{t.date}</td>
+                    <td style={{padding:"5px 8px"}}>
+                      <span style={{background:"#eff6ff",color:"#3b82f6",borderRadius:4,padding:"2px 7px",fontSize:11,fontWeight:600}}>{t.categoria}</span>
+                    </td>
+                    <td style={{padding:"5px 8px",color:C.text,fontWeight:600,fontSize:12,whiteSpace:"nowrap"}}>{t.vendor||"—"}</td>
+                    <td style={{padding:"5px 8px",color:C.faint,fontSize:11,wordBreak:"break-word",minWidth:200}} title={t.descrizione}>{t.descrizione}</td>
+                    <td style={{padding:"5px 8px",color:"#ef4444",fontWeight:700,textAlign:"right",fontSize:12,whiteSpace:"nowrap"}}>{fmt(t.uscita)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+function MetodiTab({txs, selYear, selMonth}){
+  const [selMetodo,setSelMetodo]=useState(null);
+  const [sortBy,setSortBy]=useState("date");
+
+  // Aggrega per metodo
+  const metodoData=useMemo(()=>{
+    const map={};
+    txs.filter(t=>t.uscita>0&&!NEUTRAL_CATS.includes(t.categoria)).forEach(t=>{
+      const m=t.metodo||"Altro";
+      if(!map[m])map[m]={name:m,uscite:0,count:0};
+      map[m].uscite+=t.uscita; map[m].count++;
+    });
+    return Object.values(map).sort((a,b)=>b.uscite-a.uscite);
+  },[txs]);
+
+  // Trend mensile per metodo selezionato
+  const trendData=useMemo(()=>{
+    if(!selMetodo)return[];
+    const filtered=txs.filter(t=>t.uscita>0&&(t.metodo||"Altro")===selMetodo);
+    if(selYear&&selMonth){
+      const byDay={};
+      filtered.filter(t=>t.year===selYear&&t.month===selMonth).forEach(t=>{
+        const d=+t.date.slice(8,10);byDay[d]=(byDay[d]||0)+t.uscita;
+      });
+      const days=new Date(selYear,selMonth,0).getDate();
+      return Array.from({length:days},(_,i)=>({label:String(i+1).padStart(2,"0"),value:Math.round((byDay[i+1]||0))}));
+    }
+    if(selYear){
+      const byM={};
+      filtered.filter(t=>t.year===selYear).forEach(t=>{byM[t.month]=(byM[t.month]||0)+t.uscita;});
+      return MONTHS_IT.map((m,i)=>({label:m,value:Math.round(byM[i+1]||0)}));
+    }
+    const byYm={};
+    filtered.forEach(t=>{byYm[t.ym]=(byYm[t.ym]||0)+t.uscita;});
+    return Object.entries(byYm).sort().map(([ym,v])=>({label:fmtYm(ym),value:Math.round(v)}));
+  },[txs,selMetodo,selYear,selMonth]);
+
+  // Tabella transazioni
+  const tableRows=useMemo(()=>{
+    if(!selMetodo)return[];
+    const rows=txs.filter(t=>t.uscita>0&&(t.metodo||"Altro")===selMetodo);
+    return sortBy==="date"?[...rows].sort((a,b)=>b.date.localeCompare(a.date)):[...rows].sort((a,b)=>b.uscita-a.uscita);
+  },[txs,selMetodo,sortBy]);
+
+  const METODO_COLORS={
+    "Carta":"#93c5fd","Bonifico":"#6ee7b7","SDD/Domicil.":"#fca5a5",
+    "MAV/RAV":"#fcd34d","F24":"#f97316","Contanti":"#a3a3a3",
+    "Giroconto":"#c4b5fd","Accredito":"#4ade80",
+    "Spesa Bancaria":"#cbd5e1","Altro":"#e2e8f0"
+  };
+
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:16}}>
+
+      {/* OVERVIEW */}
+      <div className="grid2">
+        <Box title="Spese per metodo di pagamento — clicca per dettaglio">
+          <p style={{fontSize:12,color:C.muted,marginBottom:8}}>Il metodo è rilevato automaticamente dalla causale bancaria.</p>
+          <ResponsiveContainer width="100%" height={Math.max(300,metodoData.length*38)}>
+            <BarChart data={[...metodoData].reverse()} layout="vertical" margin={{right:80}}>
+              <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+              <XAxis type="number" tickFormatter={fmtK} tick={{fill:C.muted,fontSize:12}} tickLine={false}/>
+              <YAxis type="category" dataKey="name" width={120} tick={{fill:C.text,fontSize:13,fontWeight:600}}/>
+              <Tooltip content={<Tip/>}/>
+              <Bar dataKey="uscite" name="Spese" radius={[0,4,4,0]} cursor="pointer"
+                onClick={(data,_,e)=>setSelMetodo(selMetodo===data.name?null:data.name)}
+                label={{position:"right",formatter:v=>fmt(v),fontSize:11,fill:C.muted,fontWeight:600}}>
+                {[...metodoData].reverse().map((d,i)=>(
+                  <Cell key={i}
+                    fill={METODO_COLORS[d.name]||PASTEL[i%PASTEL.length]}
+                    opacity={selMetodo&&d.name!==selMetodo?0.3:1}/>
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </Box>
+
+        <Box title={selMetodo?`📅 Andamento: ${selMetodo}`:"📅 Andamento metodo"}>
+          {!selMetodo?(
+            <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:200,flexDirection:"column",gap:10,color:C.faint}}>
+              <div style={{fontSize:32}}>👈</div>
+              <div style={{fontSize:13}}>Seleziona un metodo di pagamento</div>
+            </div>
+          ):(
+            <>
+              <div style={{display:"flex",gap:10,marginBottom:12,flexWrap:"wrap"}}>
+                {(()=>{const d=metodoData.find(m=>m.name===selMetodo);return d?(<>
+                  <div style={{background:"#eff6ff",borderRadius:8,padding:"8px 14px",fontSize:12}}>
+                    <span style={{color:C.muted}}>Totale: </span><strong style={{color:"#3b82f6"}}>{fmt(d.uscite)}</strong>
+                  </div>
+                  <div style={{background:"#f0fdf4",borderRadius:8,padding:"8px 14px",fontSize:12}}>
+                    <span style={{color:C.muted}}>Operazioni: </span><strong style={{color:"#10b981"}}>{d.count}</strong>
+                  </div>
+                  <div style={{background:"#fefce8",borderRadius:8,padding:"8px 14px",fontSize:12}}>
+                    <span style={{color:C.muted}}>Media: </span><strong style={{color:"#ca8a04"}}>{fmt(d.uscite/d.count)}</strong>
+                  </div>
+                </>):null;})()}
+              </div>
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={trendData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+                  <XAxis dataKey="label" tick={{fill:C.muted,fontSize:11}} interval={trendData.length>24?2:0}/>
+                  <YAxis tickFormatter={fmtK} tick={{fill:C.muted,fontSize:11}}/>
+                  <Tooltip content={<Tip/>}/>
+                  <Bar dataKey="value" name="Spese"
+                    fill={METODO_COLORS[selMetodo]||"#93c5fd"} radius={[3,3,0,0]}/>
+                </BarChart>
+              </ResponsiveContainer>
+            </>
+          )}
+        </Box>
+      </div>
+
+      {/* TABELLA */}
+      {selMetodo&&tableRows.length>0&&(
+        <Box title={`📋 Transazioni: ${selMetodo} (${tableRows.length} record)`}>
+          <div style={{display:"flex",gap:8,marginBottom:10,alignItems:"center",flexWrap:"wrap"}}>
+            <span style={{fontSize:11,color:C.muted,fontWeight:600}}>Ordina:</span>
+            <button onClick={()=>setSortBy("date")} style={{background:sortBy==="date"?"#60a5fa":"transparent",color:sortBy==="date"?"#fff":C.muted,border:`1px solid ${sortBy==="date"?"#60a5fa":C.border}`,borderRadius:5,padding:"3px 10px",cursor:"pointer",fontSize:11}}>Data ↓</button>
+            <button onClick={()=>setSortBy("amount")} style={{background:sortBy==="amount"?"#60a5fa":"transparent",color:sortBy==="amount"?"#fff":C.muted,border:`1px solid ${sortBy==="amount"?"#60a5fa":C.border}`,borderRadius:5,padding:"3px 10px",cursor:"pointer",fontSize:11}}>Importo ↓</button>
+            <span style={{marginLeft:"auto",fontSize:11,color:C.faint}}>Totale: <strong style={{color:C.text}}>{fmt(tableRows.reduce((s,t)=>s+t.uscita,0))}</strong></span>
+          </div>
+          <div style={{overflowX:"auto",WebkitOverflowScrolling:"touch"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:13,tableLayout:"auto",minWidth:600}}>
+              <thead>
+                <tr style={{borderBottom:`2px solid ${C.border}`,background:"#f8fafc"}}>
+                  {["Data","Venditore","Categoria","Descrizione","Importo"].map(h=>(
+                    <th key={h} style={{textAlign:h==="Importo"?"right":"left",padding:"7px 8px",color:C.muted,fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:0.5,whiteSpace:"nowrap"}}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {tableRows.map((t,i)=>(
+                  <tr key={i} style={{borderBottom:`1px solid ${C.border}`}}
+                    onMouseEnter={e=>e.currentTarget.style.background="#f8fafc"}
+                    onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                    <td style={{padding:"5px 8px",color:C.muted,whiteSpace:"nowrap",fontSize:12}}>{t.date}</td>
+                    <td style={{padding:"5px 8px",color:C.text,fontWeight:600,fontSize:12,whiteSpace:"nowrap"}}>{t.vendor||"—"}</td>
+                    <td style={{padding:"5px 8px"}}>
+                      <span style={{background:"#eff6ff",color:"#3b82f6",borderRadius:4,padding:"2px 7px",fontSize:11,fontWeight:600,whiteSpace:"nowrap"}}>{t.categoria}</span>
+                    </td>
+                    <td style={{padding:"5px 8px",color:C.faint,fontSize:11,maxWidth:280,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={t.descrizione}>{t.descrizione}</td>
+                    <td style={{padding:"5px 8px",color:"#ef4444",fontWeight:700,whiteSpace:"nowrap",textAlign:"right",fontSize:12}}>{fmt(t.uscita)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Box>
+      )}
+    </div>
+  );
+}
+
+
 function App(){
   const [url,setUrl]=useState(null);
   const [txs,setTxs]=useState([]);
@@ -2098,7 +2441,7 @@ function App(){
   if(setup)return<Setup onSave={handleSaveUrl}/>;
 
 
-  const TABS=[["panoramica","📊 Panoramica"],["mensile","📅 Mensile"],["categorie","🏷 Categorie"],["venditori","🏪 Venditori"],["investimenti","📈 Investimenti"],["regole","🔧 Regole"]];
+  const TABS=[["panoramica","📊 Panoramica"],["mensile","📅 Mensile"],["categorie","🏷 Categorie"],["venditori","🏪 Venditori"],["metodi","💳 Metodi"],["metodi","💳 Metodi"],["investimenti","📈 Investimenti"],["regole","🔧 Regole"]];
 
   return(
     <div style={{display:"flex",height:"100vh",overflow:"hidden",background:C.bg}}>
@@ -2240,6 +2583,8 @@ function App(){
               if(url)settingsPush(url);
             }}/>}
             {tab==="venditori"&&<VenditoriTab allTxs={txs} filteredTxs={filteredTxs} selYear={selYear} selMonth={selMonth}/>}
+            {tab==="metodi"&&<MetodiTab txs={filteredTxs} selYear={selYear} selMonth={selMonth}/> }
+            {tab==="metodi"&&<MetodiTab txs={filteredTxs} selYear={selYear} selMonth={selMonth}/>}
             {tab==="investimenti"&&<InvestimentiTab txs={filteredTxs}/>}
             {tab==="regole"&&<RulesTab gsUrl={url} txs={txs} onRulesChange={()=>{
               const rules=rulesGet();
