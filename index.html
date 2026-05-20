@@ -514,21 +514,21 @@ function categorize(caus,desc){
   if(/PRELIEVO CONTANTE|BANCOMAT|PRELIEVO/.test(c))return"Prelievi ATM";
   return"Altro";
 }
-function parseCSV(text){
+function parseCSV(text, balanceMap={}){
   const rows=[];
   for(const line of text.trim().split("\n").slice(1)){
     const p=line.trim().split(";");
     if(p.length<4)continue;
     const dateStr=p[0]?.trim(),caus=p[4]?.trim()||"",desc=p[5]?.trim()||"";
+    const uscita=Math.abs(parseAmt(p[2])),entrata=parseAmt(p[3]);
     if(!caus&&desc.toLowerCase().includes("saldo")){
-      const valSaldo=entrata||Math.abs(uscita);
+      const valSaldo=entrata||uscita;
       if(valSaldo>0&&desc.toLowerCase().includes("iniziale"))
         balanceMap[dateStr]={tipo:"iniziale",valore:entrata?valSaldo:-valSaldo};
       else if(valSaldo>0&&desc.toLowerCase().includes("finale"))
         balanceMap[dateStr]={tipo:"finale",valore:entrata?valSaldo:-valSaldo};
       continue;
     }
-    const uscita=Math.abs(parseAmt(p[2])),entrata=parseAmt(p[3]);
     if(uscita===0&&entrata===0)continue;
     try{
       const [dd,mm,yyyy]=dateStr.split("/");
@@ -1962,7 +1962,7 @@ function App(){
   // Analizza file CSV selezionati e ritorna le righe parsate
   async function parseFiles(files){
     let rows=[];
-    for(const f of files){const txt=await f.text();rows.push(...parseCSV(txt));}
+    for(const f of files){const txt=await f.text();rows.push(...parseCSV(txt,balanceMap));}
     return {rows, balanceMap};
   }
 
