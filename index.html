@@ -333,7 +333,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v8.4 · 20 mag 2025";
+const VERSION="v8.5 · 20 mag 2025";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",maximumFractionDigits:0}).format(n||0);
@@ -374,9 +374,17 @@ function extractRawVendor(causale,desc){
   // Bonifico: "A FAVORE DI nome [C. BENEF. IBAN]"
   const bm=raw.match(/A FAVORE DI\s+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9\s\'&.-]{1,40}?)(?:\s+C\.?\s*BENEF|\s{2,}|\s+(?:IBAN|IT\d\d)|$)/i);
   if(bm)return{source:"bonifico",raw:bm[1].trim()};
-  // Addebito SDD/MAV/Diretto
-  const am=raw.match(/ADDEBITO\s+(?:SDD|MAV|DIRETTO|UTENZA)\s+(.+?)(?:\s{2,}|$)/i);
-  if(am)return{source:"addebito",raw:am[1].trim()};
+  // Addebito SDD/MAV/Diretto — estrai vendor da "Creditor id. ITXXX... VENDOR Id Mandato"
+  if(/ADDEBITO\s+(?:SDD|MAV|DIRETTO|UTENZA)/i.test(raw)){
+    // Pattern: dopo codice creditor id (ITxx...) c'è il nome, poi "Id Mandato"
+    const sddCreditor=raw.match(/Creditor\s+id\.?\s+[A-Z]{2}[0-9A-Z]{10,}\s+([A-Za-zÀ-ÿ][^\n]{2,50?})\s+Id\s+Mandato/i);
+    if(sddCreditor)return{source:"addebito",raw:sddCreditor[1].trim()};
+    // Fallback: testo subito dopo ADDEBITO SDD fino a "Scad." o fine
+    const am=raw.match(/ADDEBITO\s+(?:SDD|MAV|DIRETTO|UTENZA)\s+CORE\s+Scad\.\s+[\d/]+\s+Imp\.\s+[\d.]+\s+(?:Credito|Creditor).+?\s+([A-Z][A-Za-zÀ-ÿ\s&'.]{2,40?})\s+(?:Id\s+Mandato|Debitore)/i);
+    if(am)return{source:"addebito",raw:am[1].trim()};
+    const am2=raw.match(/ADDEBITO\s+(?:SDD|MAV|DIRETTO|UTENZA)\s+(.+?)(?:\s{2,}|Scad\.|$)/i);
+    if(am2)return{source:"addebito",raw:am2[1].trim()};
+  }
   return null;
 }
 
@@ -696,12 +704,13 @@ function Tip({active,payload,label}){
     </div>
   );
 }
-function Card({label,value,sub,color,icon}){
+function Card({label,value,sub,color,textColor,icon}){
+  const tc=textColor||"#1e293b";
   return(
-    <div style={{background:color,borderRadius:12,padding:"16px 20px",flex:"1 1 140px",boxShadow:"0 2px 8px rgba(0,0,0,0.12)"}}>
-      <div style={{color:"rgba(255,255,255,0.85)",fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:1.2,marginBottom:8}}>{icon} {label}</div>
-      <div style={{color:"#fff",fontSize:26,fontWeight:900,lineHeight:1,letterSpacing:-0.5}}>{value}</div>
-      {sub&&<div style={{color:"rgba(255,255,255,0.75)",fontSize:11,marginTop:6,fontWeight:500}}>{sub}</div>}
+    <div style={{background:color,borderRadius:12,padding:"16px 20px",flex:"1 1 140px",boxShadow:"0 1px 4px rgba(0,0,0,0.08)",border:"1px solid rgba(0,0,0,0.06)"}}>
+      <div style={{color:tc,opacity:0.65,fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:1.2,marginBottom:8,fontFamily:"system-ui,sans-serif"}}>{icon} {label}</div>
+      <div style={{color:tc,fontSize:28,fontWeight:900,lineHeight:1,letterSpacing:-1,fontFamily:"Georgia,serif"}}>{value}</div>
+      {sub&&<div style={{color:tc,opacity:0.55,fontSize:11,marginTop:6,fontWeight:600,fontFamily:"system-ui,sans-serif"}}>{sub}</div>}
     </div>
   );
 }
@@ -865,20 +874,24 @@ function SunburstChart({txs, excInvest, selCats, toggleCat}) {
       catMap[t.categoria].vendors[v] = (catMap[t.categoria].vendors[v]||0)+t.uscita;
     });
     const total = Object.values(catMap).reduce((s,v)=>s+v.total,0);
-    const top5 = Object.entries(catMap).sort((a,b)=>b[1].total-a[1].total).slice(0,5);
-    return {
-      total,
-      name:"root",
-      children: top5.map(([cat,d],i) => ({
-        name: cat,
-        color: SB_PALETTE[i],
-        total: d.total,
-        pct: Math.round(d.total/total*100),
-        children: Object.entries(d.vendors)
-          .sort((a,b)=>b[1]-a[1]).slice(0,3)
-          .map(([v,val]) => ({name:v, value:val, pct:Math.round(val/d.total*100)}))
-      }))
-    };
+    const sorted = Object.entries(catMap).sort((a,b)=>b[1].total-a[1].total);
+    const top5 = sorted.slice(0,5);
+    const rest = sorted.slice(5);
+    const altroTotal = rest.reduce((s,[,d])=>s+d.total,0);
+    const children = top5.map(([cat,d],i) => {
+      const topVendors = Object.entries(d.vendors).sort((a,b)=>b[1]-a[1]).slice(0,3);
+      const vendorSum = topVendors.reduce((s,[,v])=>s+v,0);
+      const vendorAltro = d.total - vendorSum;
+      const vendorChildren = topVendors.map(([v,val])=>({name:v,value:val}));
+      if(vendorAltro>0) vendorChildren.push({name:"Altro",value:vendorAltro});
+      return {name:cat, color:SB_PALETTE[i], total:d.total, pct:Math.round(d.total/total*100), children:vendorChildren};
+    });
+    if(altroTotal>0) children.push({
+      name:"Altro", color:SB_PALETTE[5]||"#cbd5e1", total:altroTotal,
+      pct:Math.round(altroTotal/total*100),
+      children:[{name:"Varie categorie",value:altroTotal}]
+    });
+    return {total, name:"root", children};
   }, [txs, excInvest]);
 
   React.useEffect(() => {
@@ -899,9 +912,9 @@ function SunburstChart({txs, excInvest, selCats, toggleCat}) {
 
     const arc = d3.arc()
       .startAngle(d=>d.x0).endAngle(d=>d.x1)
-      .padAngle(()=>0.016).padRadius(R*0.35)
-      .innerRadius(d=>d.depth===1?R*0.22:d.y0+3)
-      .outerRadius(d=>d.depth===1?d.y1-2:d.y1-2);
+      .padAngle(()=>0.012).padRadius(R*0.3)
+      .innerRadius(d=>d.depth===1?R*0.20:d.y0+2)
+      .outerRadius(d=>d.depth===1?R*0.53:d.y1-2);
 
     const getColor = d => {
       if (d.depth===0) return "none";
@@ -1102,14 +1115,14 @@ function CategorieTab({txs,excInvest,selYear,selMonth,onRuleAdded}){
         {/* BARRE — sinistra */}
         <Box title="Totale per categoria — clicca (CTRL+click = multiplo)">
           <ResponsiveContainer width="100%" height={Math.max(400,catData.length*32)}>
-            <BarChart data={[...catData].reverse()} layout="vertical" margin={{right:65}}
-              onClick={d=>{if(d?.activePayload?.[0]){const n=d.activePayload[0].payload.name;toggleCat(n,d.nativeEvent?.ctrlKey||d.nativeEvent?.metaKey);}}}>
+            <BarChart data={[...catData].reverse()} layout="vertical" margin={{right:65}}>
               <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
               <XAxis type="number" tickFormatter={fmtK} tick={{fill:C.muted,fontSize:13}} tickLine={false}/>
               <YAxis type="category" dataKey="name" width={130} tick={{fill:C.text,fontSize:12,fontWeight:600}}/>
               <Tooltip formatter={v=>fmt(v)} contentStyle={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,fontSize:12}}/>
               <Bar dataKey="value" name="Totale" radius={[0,4,4,0]} style={{cursor:"pointer"}}
-                label={{position:"right",formatter:v=>fmtK(v),fontSize:12,fill:C.muted,fontWeight:700}}>
+                onClick={(data,_,e)=>toggleCat(data.name,(e?.ctrlKey||e?.metaKey))}
+                label={{position:"right",formatter:v=>fmt(v),fontSize:11,fill:C.muted,fontWeight:600}}>
                 {[...catData].reverse().map((_,i)=>{
                   const name=[...catData].reverse()[i].name;
                   return<Cell key={i} fill={PASTEL[(catData.length-1-i)%PASTEL.length]} opacity={selCats.length>0&&!selCats.includes(name)?0.3:1}/>;
@@ -1890,7 +1903,7 @@ function App(){
   const [syncing,setSyncing]=useState(false);
   const [msg,setMsg]=useState("");
   const [tab,setTab]=useState("panoramica");
-  const [excInvest,setExcInvest]=useState(false);
+  const [excInvest,setExcInvest]=useState(true);
   const [selYears,setSelYears]=useState([]); // [] = tutti gli anni
   const [selMonths,setSelMonths]=useState([]); // [] = tutti i mesi
   const selYear=selYears.length===1?selYears[0]:null;
@@ -2142,10 +2155,10 @@ function App(){
 
             {/* KPIs */}
             <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
-              <Card label="Entrate" value={fmt(agg.totalE)} sub={excInvest?"senza investimenti":periodLabel} color="#22c55e" icon="↑"/>
-              <Card label="Uscite"  value={fmt(agg.totalU)} sub={excInvest?"senza investimenti":periodLabel} color="#ef4444" icon="↓"/>
-              <Card label="Saldo"   value={fmt(Math.abs(agg.totalE-agg.totalU))} sub={(agg.totalE-agg.totalU)>=0?"positivo":"negativo"} color={(agg.totalE-agg.totalU)>=0?"#16a34a":"#dc2626"} icon="≈"/>
-              <Card label="Transaz." value={filteredTxs.length.toLocaleString()} sub={periodLabel} color="#8b5cf6" icon="#"/>
+              <Card label="Entrate" value={"+"+fmt(agg.totalE)} sub={excInvest?"senza investimenti":periodLabel} color="#bbf7d0" icon="↑"/>
+              <Card label="Uscite"  value={"-"+fmt(agg.totalU)} sub={excInvest?"senza investimenti":periodLabel} color="#fecaca" icon="↓"/>
+              <Card label="Saldo"   value={((agg.totalE-agg.totalU)>=0?"+":"-")+fmt(Math.abs(agg.totalE-agg.totalU))} sub={(agg.totalE-agg.totalU)>=0?"positivo":"negativo"} color={(agg.totalE-agg.totalU)>=0?"#bbf7d0":"#fecaca"} icon="≈"/>
+              <Card label="Transaz." value={filteredTxs.length.toLocaleString()} sub={periodLabel} color="#ddd6fe" icon="#"/>
             </div>
 
             {/* TABS */}
