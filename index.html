@@ -248,9 +248,17 @@ const CHAIN_MAP=[
   [/autoscuola/i,null,"Altro"],
   [/banco.bpm/i,"Banco BPM","Spese Bancarie"],
   [/facebk|facebook/i,"Facebook/Meta","Software / AI"],
+  // Intermediari di Pagamento
+  [/\bpaypal\b/i,"PayPal","Intermediari di Pagamento"],
+  [/\bsumup\b/i,"SumUp","Intermediari di Pagamento"],
+  [/\bsatispay\b/i,"Satispay","Intermediari di Pagamento"],
+  [/\bstripe\b/i,"Stripe","Intermediari di Pagamento"],
+  [/\bnexi\b/i,"Nexi","Intermediari di Pagamento"],
+  [/\bklarna\b/i,"Klarna","Intermediari di Pagamento"],
+  [/\bscalapay\b/i,"Scalapay","Intermediari di Pagamento"],
 ];
 
-const CATS=["Supermercato","Carburante","E-commerce","Streaming","Ristorazione","Sport / Fitness","Casa / Brico","Abbigliamento / Scarpe","Beauty / Cura","Elettronica","Animali","Trasporti / Viaggio","Software / AI","Cultura / Svago","Telefonia","Utenze","Assicurazioni","Farmacia","Tasse","Bonifici","Prelievi ATM","Carta di Credito","Rate / Dom.","Stipendio","Spese Bancarie","Investimenti","💰 Giro Interno","Altro"];
+const CATS=["Supermercato","Carburante","E-commerce","Streaming","Ristorazione","Sport / Fitness","Casa / Brico","Abbigliamento / Scarpe","Beauty / Cura","Elettronica","Animali","Trasporti / Viaggio","Software / AI","Cultura / Svago","Telefonia","Utenze","Assicurazioni","Farmacia","Tasse","Bonifici","Prelievi ATM","Carta di Credito","Intermediari di Pagamento","Rate / Dom.","Stipendio","Spese Bancarie","Investimenti","💰 Giro Interno","Altro"];
 // Categorie neutrali (escluse dai totali per default, come investimenti)
 const NEUTRAL_CATS=["📈 Investimenti","💰 Giro Interno"];
 
@@ -333,7 +341,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v8.5 · 20 mag 2025";
+const VERSION="v8.6 · 20 mag 2025";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",maximumFractionDigits:0}).format(n||0);
@@ -499,6 +507,7 @@ function categorize(caus,desc){
   if(/GIROCONTO/.test(c))return"💰 Giro Interno";
   if(/CARTA CREDITO ING|ADDEBITO CARTA DI CREDITO/.test(c))return"Carta di Credito";
   if(/ADDEBITO MAV|ADDEBITO SDD|ADDEBITO DIRETTO/.test(c))return"Rate / Dom.";
+  if(/CARTA DI CREDITO|ADDEBITO CARTA/i.test(c))return"Intermediari di Pagamento";
   if(/STIPENDIO|DHL EXPRESS|EMOLUMENTI/.test(c))return"Stipendio";
   if(/OUTLET.*CARBURANT|STAZIONE.*SERVIZIO|DISTRIBUTORE/.test(c))return"Carburante";
   if(/BONIFICO|SEPA/.test(c))return"Bonifici";
@@ -709,7 +718,7 @@ function Card({label,value,sub,color,textColor,icon}){
   return(
     <div style={{background:color,borderRadius:12,padding:"16px 20px",flex:"1 1 140px",boxShadow:"0 1px 4px rgba(0,0,0,0.08)",border:"1px solid rgba(0,0,0,0.06)"}}>
       <div style={{color:tc,opacity:0.65,fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:1.2,marginBottom:8,fontFamily:"system-ui,sans-serif"}}>{icon} {label}</div>
-      <div style={{color:tc,fontSize:28,fontWeight:900,lineHeight:1,letterSpacing:-1,fontFamily:"Georgia,serif"}}>{value}</div>
+      <div style={{color:tc,fontSize:26,fontWeight:700,lineHeight:1,letterSpacing:-0.5,fontFamily:"system-ui,-apple-system,'Segoe UI',sans-serif"}}>{value}</div>
       {sub&&<div style={{color:tc,opacity:0.55,fontSize:11,marginTop:6,fontWeight:600,fontFamily:"system-ui,sans-serif"}}>{sub}</div>}
     </div>
   );
@@ -878,18 +887,31 @@ function SunburstChart({txs, excInvest, selCats, toggleCat}) {
     const top5 = sorted.slice(0,5);
     const rest = sorted.slice(5);
     const altroTotal = rest.reduce((s,[,d])=>s+d.total,0);
+    // Intermediari: use payment instrument name as children (not vendors)
+    const INTERMEDIARI_INSTRUMENTS = ["PayPal","Carta di Credito","SumUp","Satispay","Stripe","Nexi","Klarna","Scalapay"];
     const children = top5.map(([cat,d],i) => {
-      const topVendors = Object.entries(d.vendors).sort((a,b)=>b[1]-a[1]).slice(0,3);
-      const vendorSum = topVendors.reduce((s,[,v])=>s+v,0);
-      const vendorAltro = d.total - vendorSum;
-      const vendorChildren = topVendors.map(([v,val])=>({name:v,value:val}));
-      if(vendorAltro>0) vendorChildren.push({name:"Altro",value:vendorAltro});
+      let vendorChildren;
+      if(cat==="Intermediari di Pagamento"){
+        // Group by instrument name
+        const instrMap={};
+        Object.entries(d.vendors).forEach(([v,val])=>{
+          const instr=INTERMEDIARI_INSTRUMENTS.find(x=>v.toLowerCase().includes(x.toLowerCase()))||"Altro";
+          instrMap[instr]=(instrMap[instr]||0)+val;
+        });
+        vendorChildren=Object.entries(instrMap).sort((a,b)=>b[1]-a[1]).map(([v,val])=>({name:v,value:val,isInstrument:true}));
+      } else {
+        const topVendors = Object.entries(d.vendors).sort((a,b)=>b[1]-a[1]).slice(0,3);
+        const vendorSum = topVendors.reduce((s,[,v])=>s+v,0);
+        const vendorAltro = d.total - vendorSum;
+        vendorChildren = topVendors.map(([v,val])=>({name:v,value:val}));
+        if(vendorAltro>0) vendorChildren.push({name:"Altri",value:vendorAltro});
+      }
       return {name:cat, color:SB_PALETTE[i], total:d.total, pct:Math.round(d.total/total*100), children:vendorChildren};
     });
     if(altroTotal>0) children.push({
-      name:"Altro", color:SB_PALETTE[5]||"#cbd5e1", total:altroTotal,
+      name:"Altre cat.", color:SB_PALETTE[5]||"#cbd5e1", total:altroTotal,
       pct:Math.round(altroTotal/total*100),
-      children:[{name:"Varie categorie",value:altroTotal}]
+      children:[{name:"Varie",value:altroTotal}]
     });
     return {total, name:"root", children};
   }, [txs, excInvest]);
@@ -941,7 +963,8 @@ function SunburstChart({txs, excInvest, selCats, toggleCat}) {
           name:d.data.name,
           val:fmt(d.value),
           pct:Math.round(d.value/buildData.total*100),
-          cat:n.data.name});
+          cat:n.data.name,
+          isInstrument:!!d.data.isInstrument});
       })
       .on("mouseleave",()=>setTip(null))
       .on("click",(event,d)=>{
@@ -999,7 +1022,7 @@ function SunburstChart({txs, excInvest, selCats, toggleCat}) {
         <div style={{position:"absolute",left:tip.x,top:tip.y,background:"#1e293b",color:"#fff",
           borderRadius:8,padding:"8px 12px",fontSize:12,pointerEvents:"none",zIndex:100,
           boxShadow:"0 4px 12px rgba(0,0,0,0.2)",minWidth:120}}>
-          <div style={{fontWeight:700,marginBottom:2}}>{tip.name}</div>
+          <div style={{fontWeight:700,marginBottom:2}}>{tip.isInstrument?"pagato tramite":""} {tip.name}</div>
           <div style={{color:"#94a3b8",fontSize:11}}>{tip.cat}</div>
           <div style={{fontSize:14,fontWeight:800,color:"#60a5fa",marginTop:2}}>{tip.val}</div>
           <div style={{color:"#94a3b8",fontSize:11}}>{tip.pct}% del totale</div>
@@ -1213,8 +1236,8 @@ function CategorieTab({txs,excInvest,selYear,selMonth,onRuleAdded}){
       </Box>
 
       {/* Tabella record */}
-      {selCat&&!( excInvest&&selCats.length>0&&selCats.every(c=>NEUTRAL_CATS.includes(c)))&&tableRows.length>0&&(
-        <Box title={`📋 Transazioni: ${selCat} (${tableRows.length} record)`}>
+      {selCats.length>0&&!( excInvest&&selCats.every(c=>NEUTRAL_CATS.includes(c)))&&tableRows.length>0&&(
+        <Box title={`📋 Transazioni: ${selCats.length===1?selCats[0]:selCats.length+" categorie"} (${tableRows.length} record)`}>
           <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"center",flexWrap:"wrap"}}>
             <span style={{fontSize:11,color:C.muted,fontWeight:600}}>Ordina per:</span>
             <button onClick={()=>setSortBy("date")} style={{background:sortBy==="date"?"#60a5fa":"transparent",color:sortBy==="date"?"#fff":C.muted,border:`1px solid ${sortBy==="date"?"#60a5fa":C.border}`,borderRadius:5,padding:"3px 10px",cursor:"pointer",fontSize:11}}>Data ↓</button>
