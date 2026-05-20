@@ -34,7 +34,7 @@
 <script type="text/babel">
 const {useState,useEffect,useMemo}=React;
 const {BarChart,Bar,AreaChart,Area,LineChart,Line,PieChart,Pie,Cell,
-       XAxis,YAxis,CartesianGrid,Tooltip,Legend,ResponsiveContainer,ReferenceLine}=Recharts;
+       ComposedChart,XAxis,YAxis,CartesianGrid,Tooltip,Legend,ResponsiveContainer,ReferenceLine}=Recharts;
 
 // ── PALETTE pastel ────────────────────────────────────────────────────────────
 const C={
@@ -341,7 +341,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v8.7 · 20 mag 2026";
+const VERSION="v8.8 · 20 mag 2026";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",minimumFractionDigits:0,maximumFractionDigits:0,useGrouping:true}).format(n||0);
@@ -501,6 +501,7 @@ function categorize(caus,desc){
   if(/NETFLIX|SPOTIFY|PRIME VIDEO|DISNEY|DAZN|SKY SPA/.test(c))return"Streaming";
   if(/ASSICURAZIONE|GENERALI|ALLIANZ|UNIPOL/.test(c))return"Assicurazioni";
   if(/BRICOMAN|IKEA|LEROY MERLIN/.test(c))return"Casa / Brico";
+  if(/COMMISSIONE.*TITOLI|DIRITTI.*TITOLI|SPESE.*TITOLI|BOLLI.*DOSSIER/.test(c))return"Spese Bancarie";
   if(/COMPRAVENDITA TITOLI|TRADING|FONDI|VENDITA FONDI|ACQUISTO FONDI|TITOLI/.test(c))return"📈 Investimenti";
   if(/IMPOSTA DI BOLLO TRADING|BOLLI GOVERN|IMPOSTE E TASSE|PAGAMENTO F24|BOLLO AUTO/.test(c))return"Tasse";
   if(/IMPOSTA DI BOLLO|INTERESSI E COMPETENZE|COMMISSIONE|CANONE.*CARTA|CANONE.*CONTO|TENUTA.*CONTO|SPESE TENUTA|CANONE ANNUO|CANONE MENSILE/.test(c))return"Spese Bancarie";
@@ -852,17 +853,35 @@ function PanoramicaTab({allTxs,filteredTxs,selYears,selYear,selMonth,excInvest,b
     <div style={{display:"flex",flexDirection:"column",gap:16}}>
       <div className="grid2">
         <Box title={selYears.length>1?`Entrate vs Uscite — ${selYears.join(", ")}`:selYear?(selMonth?`Entrate vs Uscite — ${MONTHS_IT[selMonth-1]} ${selYear}`:`Entrate vs Uscite mensili — ${selYear}`):"Entrate vs Uscite per Anno"} minH={300}>
-          <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={selYears.length>0?agg.monthly:agg.yearly}>
-              <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
-              <XAxis dataKey={selYears.length>0?"label":"year"} tick={{fill:C.muted,fontSize:11}}/>
-              <YAxis tickFormatter={fmtK} tick={{fill:C.muted,fontSize:10}}/>
-              <Tooltip content={<Tip/>}/>
-              <Legend wrapperStyle={{fontSize:12}}/>
-              <Bar dataKey="entrate" name="Entrate" fill="#6ee7b7" radius={[3,3,0,0]}/>
-              <Bar dataKey="uscite" name="Uscite" fill="#fca5a5" radius={[3,3,0,0]}/>
-            </BarChart>
-          </ResponsiveContainer>
+          {(()=>{
+            // Calcola saldo cumulativo per la linea
+            const chartData=selYears.length>0?agg.monthly:agg.yearly;
+            let cumSaldo=0;
+            // Usa saldo iniziale da balanceSaldos se disponibile
+            if(balanceSaldos&&Object.keys(balanceSaldos).length){
+              const sorted=Object.entries(balanceSaldos).sort((a,b)=>a[0].localeCompare(b[0]));
+              cumSaldo=sorted[0][1].valore||0;
+            }
+            const dataWithSaldo=chartData.map(d=>{
+              cumSaldo+=d.entrate-d.uscite;
+              return{...d,saldoCumulativo:Math.round(cumSaldo)};
+            });
+            return(
+              <ResponsiveContainer width="100%" height={260}>
+                <ComposedChart data={dataWithSaldo}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+                  <XAxis dataKey={selYears.length>0?"label":"year"} tick={{fill:C.muted,fontSize:11}}/>
+                  <YAxis yAxisId="left" tickFormatter={fmtK} tick={{fill:C.muted,fontSize:10}}/>
+                  <YAxis yAxisId="right" orientation="right" tickFormatter={fmtK} tick={{fill:C.muted,fontSize:10}} width={55}/>
+                  <Tooltip content={<Tip/>}/>
+                  <Legend wrapperStyle={{fontSize:12}}/>
+                  <Bar yAxisId="left" dataKey="entrate" name="Entrate" fill="#6ee7b7" radius={[3,3,0,0]}/>
+                  <Bar yAxisId="left" dataKey="uscite" name="Uscite" fill="#fca5a5" radius={[3,3,0,0]}/>
+                  <Line yAxisId="right" type="monotone" dataKey="saldoCumulativo" name="Saldo" stroke="#60a5fa" strokeWidth={2.5} dot={false} activeDot={{r:5}}/>
+                </ComposedChart>
+              </ResponsiveContainer>
+            );
+          })()}
         </Box>
         <Box title={selYears.length>1?`Saldo — ${selYears.join(", ")}`:selYear?(selMonth?`Saldo — ${MONTHS_IT[selMonth-1]} ${selYear}`:`Saldo mensile — ${selYear}`):"Saldo Netto per Anno"} minH={300}>
           <ResponsiveContainer width="100%" height={260}>
@@ -1095,6 +1114,11 @@ function SunburstChart({txs, excInvest, selCats, toggleCat}) {
 
 function CategorieTab({txs,excInvest,selYear,selMonth,onRuleAdded}){
   const [selCats,setSelCats]=useState([]); // [] = nessuna selezione
+  useEffect(()=>{
+    const handler=e=>{if(e.key==="Escape"){setSelCats([]);setInlineEdit(null);}};
+    window.addEventListener("keydown",handler);
+    return()=>window.removeEventListener("keydown",handler);
+  },[]);
   const selCat=selCats.length===1?selCats[0]:selCats.length>1?null:null; // compat
   function toggleCat(name,ctrlKey){
     if(!ctrlKey){setSelCats(prev=>prev.length===1&&prev[0]===name?[]:([name]));}
@@ -1414,6 +1438,11 @@ function CategorieTab({txs,excInvest,selYear,selMonth,onRuleAdded}){
 function VenditoriTab({allTxs,filteredTxs,selYear,selMonth}){
   const [catFilter,setCatFilter]=useState("");
   const [selVendor,setSelVendor]=useState(null);
+  useEffect(()=>{
+    const handler=e=>{if(e.key==="Escape")setSelVendor(null);};
+    window.addEventListener("keydown",handler);
+    return()=>window.removeEventListener("keydown",handler);
+  },[]);
   const [showInvest,setShowInvest]=useState(false);
   const categories=useMemo(()=>[...new Set(allTxs.filter(t=>t.uscita>0&&t.categoria!=="📈 Investimenti").map(t=>t.categoria))].sort(),[allTxs]);
   const vendors=useMemo(()=>{
@@ -1549,6 +1578,42 @@ function VenditoriTab({allTxs,filteredTxs,selYear,selMonth}){
           )}
         </Box>
       </div>
+
+      {/* Lista transazioni venditore selezionato */}
+      {selVendor&&(()=>{
+        const rows=[...filteredTxs.filter(t=>t.uscita>0&&(t.vendor||extractVendor(t.causale,t.descrizione))===selVendor)]
+          .sort((a,b)=>b.date.localeCompare(a.date));
+        if(!rows.length)return null;
+        return(
+          <Box title={`📋 Transazioni: ${selVendor} (${rows.length} record)`}>
+            <div style={{overflowX:"auto",WebkitOverflowScrolling:"touch"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:13,tableLayout:"auto",minWidth:600}}>
+                <thead>
+                  <tr style={{borderBottom:`2px solid ${C.border}`,background:"#f8fafc"}}>
+                    {["Categoria","Data","Descrizione","Importo"].map(h=>(
+                      <th key={h} style={{textAlign:h==="Importo"?"right":"left",padding:"7px 8px",color:C.muted,fontSize:10,fontWeight:700,textTransform:"uppercase",whiteSpace:"nowrap"}}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((t,i)=>(
+                    <tr key={i} style={{borderBottom:`1px solid ${C.border}`}}
+                      onMouseEnter={e=>e.currentTarget.style.background="#f8fafc"}
+                      onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                      <td style={{padding:"5px 8px"}}>
+                        <span style={{background:"#eff6ff",color:"#3b82f6",borderRadius:4,padding:"2px 7px",fontSize:11,fontWeight:600,whiteSpace:"nowrap"}}>{t.categoria}</span>
+                      </td>
+                      <td style={{padding:"5px 8px",color:C.muted,whiteSpace:"nowrap",fontSize:12}}>{t.date}</td>
+                      <td style={{padding:"5px 8px",color:C.faint,fontSize:11,maxWidth:320,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={t.descrizione}>{t.descrizione}</td>
+                      <td style={{padding:"5px 8px",color:"#ef4444",fontWeight:700,whiteSpace:"nowrap",textAlign:"right",fontSize:12}}>{fmt(t.uscita)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Box>
+        );
+      })()}
     </div>
   );
 }
@@ -2000,6 +2065,149 @@ const METODI_COLORS={
   "Giroconto":"#a5f3fc","Spese Bancarie":"#fca5a5","Stipendio":"#bbf7d0","Altro":"#cbd5e1"
 };
 
+function EntrateTab({txs, allTxs, selYear, selMonth}){
+  const [selCat,setSelCat]=useState(null);
+
+  useEffect(()=>{
+    const h=e=>{if(e.key==="Escape")setSelCat(null);};
+    window.addEventListener("keydown",h);
+    return()=>window.removeEventListener("keydown",h);
+  },[]);
+
+  // Aggrega entrate per categoria
+  const catData=useMemo(()=>{
+    const map={};
+    txs.filter(t=>t.entrata>0&&!NEUTRAL_CATS.includes(t.categoria)).forEach(t=>{
+      const c=t.categoria;
+      if(!map[c])map[c]={name:c,value:0,count:0};
+      map[c].value+=t.entrata; map[c].count++;
+    });
+    return Object.values(map).sort((a,b)=>b.value-a.value);
+  },[txs]);
+
+  // Trend mensile entrate totali
+  const trendData=useMemo(()=>{
+    const cat=selCat;
+    const filtered=txs.filter(t=>t.entrata>0&&!NEUTRAL_CATS.includes(t.categoria)&&(!cat||t.categoria===cat));
+    if(selYear&&selMonth){
+      const byDay={};
+      filtered.filter(t=>t.year===selYear&&t.month===selMonth).forEach(t=>{const d=+t.date.slice(8,10);byDay[d]=(byDay[d]||0)+t.entrata;});
+      const days=new Date(selYear,selMonth,0).getDate();
+      return Array.from({length:days},(_,i)=>({label:String(i+1).padStart(2,"0"),value:Math.round(byDay[i+1]||0)}));
+    }
+    if(selYear){
+      const byM={};
+      filtered.filter(t=>t.year===selYear).forEach(t=>{byM[t.month]=(byM[t.month]||0)+t.entrata;});
+      return MONTHS_IT.map((m,i)=>({label:m,value:Math.round(byM[i+1]||0)}));
+    }
+    const byYm={};
+    filtered.forEach(t=>{byYm[t.ym]=(byYm[t.ym]||0)+t.entrata;});
+    return Object.entries(byYm).sort().map(([ym,v])=>({label:fmtYm(ym),value:Math.round(v)}));
+  },[txs,selCat,selYear,selMonth]);
+
+  const totalE=catData.reduce((s,d)=>s+d.value,0);
+  const avgMensile=useMemo(()=>{
+    const byYm={};
+    txs.filter(t=>t.entrata>0&&!NEUTRAL_CATS.includes(t.categoria)).forEach(t=>{byYm[t.ym]=(byYm[t.ym]||0)+t.entrata;});
+    const vals=Object.values(byYm);
+    return vals.length?vals.reduce((s,v)=>s+v,0)/vals.length:0;
+  },[txs]);
+
+  // Tabella entrate categoria selezionata
+  const tableRows=useMemo(()=>{
+    if(!selCat)return[];
+    return [...txs.filter(t=>t.entrata>0&&t.categoria===selCat)].sort((a,b)=>b.date.localeCompare(a.date));
+  },[txs,selCat]);
+
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:16}}>
+      {/* KPI */}
+      <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+        <Card label="Entrate Totali" value={"+"+fmt(totalE)} sub="periodo selezionato" color="#bbf7d0" icon="↑"/>
+        <Card label="Media Mensile" value={fmt(avgMensile)} sub="media su tutti i mesi" color="#bfdbfe" icon="📅"/>
+        <Card label="Operazioni" value={txs.filter(t=>t.entrata>0&&!NEUTRAL_CATS.includes(t.categoria)).length.toLocaleString()} sub="transazioni in entrata" color="#ddd6fe" icon="#"/>
+      </div>
+
+      <div className="grid2">
+        {/* Bar chart per categoria */}
+        <Box title="Entrate per categoria — clicca per dettaglio">
+          {catData.length===0?(
+            <div style={{textAlign:"center",padding:"40px",color:C.faint}}>Nessuna entrata nel periodo selezionato</div>
+          ):(
+            <ResponsiveContainer width="100%" height={Math.max(300,catData.length*38)}>
+              <BarChart data={[...catData].reverse()} layout="vertical" margin={{right:80}}>
+                <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+                <XAxis type="number" tickFormatter={fmtK} tick={{fill:C.muted,fontSize:12}} tickLine={false}/>
+                <YAxis type="category" dataKey="name" width={130} tick={{fill:C.text,fontSize:13,fontWeight:600}}/>
+                <Tooltip content={<Tip/>}/>
+                <Bar dataKey="value" name="Entrate" radius={[0,4,4,0]} cursor="pointer"
+                  onClick={(data)=>setSelCat(selCat===data.name?null:data.name)}
+                  label={{position:"right",formatter:v=>fmt(v),fontSize:11,fill:C.muted,fontWeight:600}}>
+                  {[...catData].reverse().map((d,i)=>(
+                    <Cell key={i} fill={PASTEL[i%PASTEL.length]} opacity={selCat&&d.name!==selCat?0.3:1}/>
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </Box>
+
+        {/* Trend */}
+        <Box title={selCat?`📅 Andamento: ${selCat}`:"📅 Andamento entrate totali"}>
+          <ResponsiveContainer width="100%" height={280}>
+            <AreaChart data={trendData} margin={{top:10,right:20,left:10,bottom:5}}>
+              <defs>
+                <linearGradient id="gEntrate" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#6ee7b7" stopOpacity={0.4}/>
+                  <stop offset="95%" stopColor="#6ee7b7" stopOpacity={0}/>
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+              <XAxis dataKey="label" tick={{fill:C.muted,fontSize:10}} interval={trendData.length>24?2:0}/>
+              <YAxis tickFormatter={fmtK} tick={{fill:C.muted,fontSize:10}}/>
+              <Tooltip content={<Tip/>}/>
+              <Area type="monotone" dataKey="value" name={selCat||"Entrate"} stroke="#6ee7b7" fill="url(#gEntrate)" strokeWidth={2.5} dot={false} activeDot={{r:5}}/>
+            </AreaChart>
+          </ResponsiveContainer>
+          {selCat&&<div style={{textAlign:"center",marginTop:8}}>
+            <button onClick={()=>setSelCat(null)} style={{background:"#f1f5f9",border:`1px solid ${C.border}`,borderRadius:6,padding:"4px 12px",cursor:"pointer",fontSize:11,color:C.muted}}>✕ Deseleziona</button>
+          </div>}
+        </Box>
+      </div>
+
+      {/* Tabella */}
+      {selCat&&tableRows.length>0&&(
+        <Box title={`📋 Entrate: ${selCat} (${tableRows.length} record)`}>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:13,tableLayout:"auto",minWidth:500}}>
+              <thead>
+                <tr style={{borderBottom:`2px solid ${C.border}`,background:"#f8fafc"}}>
+                  {["Data","Fonte","Descrizione","Importo"].map(h=>(
+                    <th key={h} style={{textAlign:h==="Importo"?"right":"left",padding:"7px 8px",color:C.muted,fontSize:10,fontWeight:700,textTransform:"uppercase",whiteSpace:"nowrap"}}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {tableRows.map((t,i)=>(
+                  <tr key={i} style={{borderBottom:`1px solid ${C.border}`}}
+                    onMouseEnter={e=>e.currentTarget.style.background="#f8fafc"}
+                    onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                    <td style={{padding:"5px 8px",color:C.muted,whiteSpace:"nowrap",fontSize:12}}>{t.date}</td>
+                    <td style={{padding:"5px 8px",color:C.text,fontWeight:600,fontSize:12,whiteSpace:"nowrap"}}>{t.vendor||"—"}</td>
+                    <td style={{padding:"5px 8px",color:C.faint,fontSize:11,maxWidth:300,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={t.descrizione}>{t.descrizione}</td>
+                    <td style={{padding:"5px 8px",color:"#10b981",fontWeight:700,whiteSpace:"nowrap",textAlign:"right",fontSize:12}}>{"+"+fmt(t.entrata)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Box>
+      )}
+    </div>
+  );
+}
+
+
 function MetodiTab({txs,selYear,selMonth}){
   const [selMetodo,setSelMetodo]=React.useState(null);
   const [sortBy,setSortBy]=React.useState("date");
@@ -2286,7 +2494,7 @@ function App(){
   if(setup)return<Setup onSave={handleSaveUrl}/>;
 
 
-  const TABS=[["panoramica","📊 Panoramica"],["mensile","📅 Mensile"],["categorie","🏷 Categorie"],["venditori","🏪 Venditori"],["metodi","💳 Metodi"],["metodi","💳 Metodi"],["investimenti","📈 Investimenti"],["regole","🔧 Regole"]];
+  const TABS=[["panoramica","📊 Panoramica"],["mensile","📅 Mensile"],["categorie","🏷 Categorie"],["venditori","🏪 Venditori"],["entrate","💰 Entrate"],["metodi","💳 Metodi"],["investimenti","📈 Investimenti"],["regole","🔧 Regole"]];
 
   return(
     <div style={{display:"flex",height:"100vh",overflow:"hidden",background:C.bg}}>
@@ -2383,7 +2591,8 @@ function App(){
             {/* INVEST BANNER */}
             <div style={{background:"#fffbeb",border:"1px solid #fde68a",borderRadius:8,padding:"8px 14px",marginBottom:14,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",fontSize:12}}>
               <span style={{color:"#92400e",flex:1,lineHeight:1.5}}>
-                📈 <strong>{pnl.count}</strong> op. investimento — acquisti: <strong>{fmt(pnl.totalOut)}</strong> · vendite: <strong>{fmt(pnl.totalIn)}</strong> · P&L: <strong style={{color:(pnl.totalIn-pnl.totalOut)>=0?"#10b981":"#ef4444"}}>{fmt(pnl.totalIn-pnl.totalOut)}</strong>
+                📈 <strong>{pnl.count}</strong> op. investimento — versato: <strong>{fmt(pnl.totalOut)}</strong> · rientrato: <strong>{fmt(pnl.totalIn)}</strong> · delta flusso: <strong style={{color:(pnl.totalIn-pnl.totalOut)>=0?"#10b981":"#ef4444"}}>{fmt(pnl.totalIn-pnl.totalOut)}</strong>
+                <span style={{fontSize:10,color:"#b45309",marginLeft:6}}>(flusso di cassa, non plusvalenza reale)</span>
               </span>
               <label style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",fontWeight:600,color:"#92400e",whiteSpace:"nowrap",fontSize:11}}>
                 <input type="checkbox" checked={excInvest} onChange={e=>setExcInvest(e.target.checked)}/> Escludi dai totali
@@ -2396,6 +2605,15 @@ function App(){
               <Card label="Uscite"  value={"-"+fmt(agg.totalU)} sub={excInvest?"senza investimenti":periodLabel} color="#fecaca" icon="↓"/>
               <Card label="Saldo"   value={((agg.totalE-agg.totalU)>=0?"+":"-")+fmt(Math.abs(agg.totalE-agg.totalU))} sub={(agg.totalE-agg.totalU)>=0?"positivo":"negativo"} color={(agg.totalE-agg.totalU)>=0?"#bbf7d0":"#fecaca"} icon="≈"/>
               <Card label="Transaz." value={filteredTxs.length.toLocaleString()} sub={periodLabel} color="#ddd6fe" icon="#"/>
+              {(()=>{
+                if(!balanceSaldos||!Object.keys(balanceSaldos).length)return null;
+                const entries=Object.entries(balanceSaldos).sort((a,b)=>b[0].localeCompare(a[0]));
+                const [lastDate,lastSaldo]=entries[0];
+                // Aggiungi movimenti successivi all'ultimo saldo certificato
+                const delta=txs.filter(t=>t.date>lastDate).reduce((s,t)=>s+t.entrata-t.uscita,0);
+                const stimato=lastSaldo.valore+delta;
+                return <Card label="Saldo Conto" value={fmt(stimato)} sub={`stimato da ${lastDate}`} color={stimato>=0?"#bfdbfe":"#fecaca"} icon="🏦"/>;
+              })()}
             </div>
 
             {/* TABS */}
@@ -2428,7 +2646,7 @@ function App(){
               if(url)settingsPush(url);
             }}/>}
             {tab==="venditori"&&<VenditoriTab allTxs={txs} filteredTxs={filteredTxs} selYear={selYear} selMonth={selMonth}/>}
-            {tab==="metodi"&&<MetodiTab txs={filteredTxs} selYear={selYear} selMonth={selMonth}/> }
+            {tab==="entrate"&&<EntrateTab txs={filteredTxs} allTxs={txs} selYear={selYear} selMonth={selMonth}/>}
             {tab==="metodi"&&<MetodiTab txs={filteredTxs} selYear={selYear} selMonth={selMonth}/>}
             {tab==="investimenti"&&<InvestimentiTab txs={filteredTxs}/>}
             {tab==="regole"&&<RulesTab gsUrl={url} txs={txs} onRulesChange={()=>{
