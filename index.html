@@ -305,9 +305,20 @@ function aliasSave(a){try{localStorage.setItem("catAliases",JSON.stringify(a))}c
 function applyAlias(cat){const a=aliasGet();return a[cat]||cat;}
 // Salva/carica TUTTE le impostazioni su Sheets (tab "Impostazioni")
 async function settingsPush(url){
+  if(!url)return;
   const data={cats:catsGet(),rules:rulesGet(),aliases:aliasGet()};
-  const enc=encodeURIComponent(JSON.stringify(data));
-  await fetch(`${url}?action=saveSettings&data=${enc}`,{redirect:"follow"}).catch(()=>{});
+  try{
+    // POST no-cors per evitare il problema redirect di Apps Script
+    await fetch(`${url}?action=saveSettings`,{
+      method:"POST",mode:"no-cors",
+      body:JSON.stringify(data),
+      headers:{"Content-Type":"text/plain"}
+    });
+  }catch{
+    // Fallback GET
+    const enc=encodeURIComponent(JSON.stringify(data));
+    await fetch(`${url}?action=saveSettings&data=${enc}`,{redirect:"follow"}).catch(()=>{});
+  }
 }
 async function settingsPull(url){
   try{
@@ -316,10 +327,15 @@ async function settingsPull(url){
     if(d.status==="ok"&&d.settings){
       // Cats: aggiorna solo se Sheets ne ha di più
       if(d.settings.cats?.length>catsGet().length) catsSave(d.settings.cats);
-      // Regole: aggiorna SOLO se Sheets ne ha DI PIÙ del locale (mai sovrascrivere con meno)
+      // Regole: merge bidirezionale — prende il set più grande tra locale e remoto
       const localRules=rulesGet();
       const remoteRules=d.settings.rules||[];
-      if(remoteRules.length>localRules.length) rulesSave(remoteRules);
+      if(remoteRules.length>=localRules.length){
+        rulesSave(remoteRules); // Sheets ha più regole — usa quelle
+      } else {
+        // Locale ha più regole — pushle su Sheets per allineare
+        settingsPush(d.url||"").catch(()=>{});
+      }
       // Aliases: merge (non sovrascrivere)
       if(d.settings.aliases){
         const merged={...d.settings.aliases,...aliasGet()};
@@ -341,7 +357,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v8.8 · 20 mag 2026";
+const VERSION="v8.8.1 · 20 mag 2026";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",minimumFractionDigits:0,maximumFractionDigits:0,useGrouping:true}).format(n||0);
@@ -1806,6 +1822,14 @@ Tutte le transazioni verranno spostate in "Altro".`))return;
     setRules(r);rulesSave(r);notify();setEditRuleId(null);
   }
 
+  function exportRules(){
+    const data=JSON.stringify({rules:rulesGet(),cats:catsGet(),aliases:aliasGet()},null,2);
+    const blob=new Blob([data],{type:"application/json"});
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(blob);
+    a.download=`contochiaro-regole-${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+  }
   const SectionBtn=({id,label})=>(
     <button onClick={()=>setActiveSection(id)} style={{padding:"7px 14px",border:`1px solid ${activeSection===id?"#60a5fa":C.border}`,background:activeSection===id?"#60a5fa":"transparent",color:activeSection===id?"#fff":C.muted,borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:activeSection===id?700:400}}>{label}</button>
   );
@@ -1817,7 +1841,8 @@ Tutte le transazioni verranno spostate in "Altro".`))return;
         <SectionBtn id="cats" label="🏷 Categorie"/>
         <SectionBtn id="rules" label="🔧 Regole fornitore"/>
         <SectionBtn id="builtins" label="📋 Mappa automatica"/>
-        {syncStatus&&<span style={{marginLeft:"auto",fontSize:11,color:"#16a34a",display:"flex",alignItems:"center",gap:4}}>☁️ {syncStatus}</span>}
+        <button onClick={exportRules} style={{marginLeft:"auto",background:"#f1f5f9",border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 12px",cursor:"pointer",fontSize:11,color:C.muted,fontWeight:600}}>⬇️ Esporta JSON</button>
+        {syncStatus&&<span style={{fontSize:11,color:"#16a34a",display:"flex",alignItems:"center",gap:4}}>☁️ {syncStatus}</span>}
       </div>
 
       {/* ── CATEGORIE ── */}
@@ -2365,8 +2390,11 @@ function App(){
     if(local.length>0)setTxs(local);
     if(saved){
       setUrl(saved);
-      // Prima carica le impostazioni da Sheets, poi i dati
-      settingsPull(saved).then(()=>syncFrom(saved,local.length));
+      // Legge SEMPRE le impostazioni da Sheets all'avvio — protezione perdita dati
+      settingsPull(saved).then(synced=>{
+        if(synced) console.log("✅ Regole sincronizzate da Sheets:", rulesGet().length);
+        syncFrom(saved,local.length);
+      });
     }
     else setSetup(true);
     setReady(true);
@@ -2654,18 +2682,19 @@ function App(){
               const local=lsGet();
               if(local.length>0){
                 const updated=local.map(t=>{
-                  // Usa vendor già estratto — non riestrarre dalla descrizione
                   const v=t.vendor||extractVendor(t.causale,t.descrizione);
                   const norm=normalizeVendor(v,rules);
                   if(norm)return{...t,vendor:norm.name||v,categoria:applyAlias(norm.cat)};
-                  // Nessuna regola: mantieni categoria esistente
                   return t;
                 });
-                lsSave(updated);   // ← salva in localStorage così persiste al refresh
+                lsSave(updated);
                 setTxs(updated);
               }
               setRulesRev(v=>v+1);
-              if(url)settingsPush(url);
+              // Sync immediato su Sheets
+              if(url){
+                settingsPush(url).then(()=>console.log("✅ Regole salvate su Sheets:",rulesGet().length));
+              }
             }}/>}
           </>)}
       {modal&&<ConfirmModal
