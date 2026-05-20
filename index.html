@@ -332,7 +332,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v7.6 · 19 mag 2025";
+const VERSION="v8.0 · 20 mag 2025";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",maximumFractionDigits:0}).format(n||0);
@@ -690,10 +690,10 @@ function Tip({active,payload,label}){
 }
 function Card({label,value,sub,color,icon}){
   return(
-    <div style={{background:C.card,border:`1px solid ${C.border}`,borderLeft:`4px solid ${color}`,borderRadius:10,padding:"12px 16px",flex:"1 1 120px"}}>
-      <div style={{color:C.muted,fontSize:10,fontWeight:600,textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>{icon} {label}</div>
-      <div style={{color:C.text,fontSize:19,fontWeight:800,lineHeight:1}}>{value}</div>
-      {sub&&<div style={{color:C.faint,fontSize:10,marginTop:4}}>{sub}</div>}
+    <div style={{background:color,borderRadius:12,padding:"16px 20px",flex:"1 1 140px",boxShadow:"0 2px 8px rgba(0,0,0,0.12)"}}>
+      <div style={{color:"rgba(255,255,255,0.85)",fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:1.2,marginBottom:8}}>{icon} {label}</div>
+      <div style={{color:"#fff",fontSize:26,fontWeight:900,lineHeight:1,letterSpacing:-0.5}}>{value}</div>
+      {sub&&<div style={{color:"rgba(255,255,255,0.75)",fontSize:11,marginTop:6,fontWeight:500}}>{sub}</div>}
     </div>
   );
 }
@@ -893,7 +893,7 @@ function CategorieTab({txs,excInvest,selYear,selMonth,onRuleAdded}){
   },[excInvest,selCat]);
 
   const agg=useMemo(()=>aggregate(txs,excInvest),[txs,excInvest]);
-  const catData=agg.catOut; // TUTTE le categorie, nessun limite
+  const catData=[...agg.catOut].sort((a,b)=>b.value-a.value); // TUTTE le categorie, ordinate per importo
 
   // ── Serie temporale per categoria selezionata ──────────────────────────────
   const timeSeries=useMemo(()=>{
@@ -1108,14 +1108,7 @@ function CategorieTab({txs,excInvest,selYear,selMonth,onRuleAdded}){
             <span style={{marginLeft:"auto",fontSize:11,color:C.faint}}>Totale: <strong style={{color:C.text}}>{fmt(tableRows.reduce((s,t)=>s+t.uscita,0))}</strong></span>
           </div>
             <div style={{overflowX:"auto"}}>
-            <table style={{width:"100%",borderCollapse:"collapse",fontSize:13,tableLayout:"fixed"}}>
-              <colgroup>
-                <col style={{width:"145px"}}/>{/* Categoria */}
-                <col style={{width:"88px"}}/>{/* Data */}
-                <col style={{width:"155px"}}/>{/* Fornitore */}
-                <col/>{/* Descrizione — spazio rimanente */}
-                <col style={{width:"72px"}}/>{/* Importo */}
-              </colgroup>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:13,tableLayout:"auto"}}>
               <thead>
                 <tr style={{borderBottom:`2px solid ${C.border}`,background:"#f8fafc"}}>
                   {["Categoria","Data","Fornitore","Descrizione","Importo"].map(h=>(
@@ -1128,21 +1121,17 @@ function CategorieTab({txs,excInvest,selYear,selMonth,onRuleAdded}){
                   <tr key={i} style={{borderBottom:`1px solid ${C.border}`}}
                     onMouseEnter={e=>e.currentTarget.style.background="#f8fafc"}
                     onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                    <td style={{padding:"5px 6px",overflow:"hidden"}}>
+                    <td style={{padding:"5px 6px",overflow:"hidden",whiteSpace:"nowrap"}}>
                       <div style={{display:"flex",alignItems:"center",gap:4}}>
-                        <select value={t.categoria}
-                          onChange={e=>setInlineEdit({pattern:t.vendor||"",name:t.vendor||"",categoria:e.target.value})}
-                          style={{fontSize:11,padding:"2px 4px",border:`1px solid ${C.border}`,borderRadius:4,color:"#3b82f6",background:"#eff6ff",cursor:"pointer",width:"100%",maxWidth:120}}>
-                          {catsGet().map(c=><option key={c} value={c}>{c}</option>)}
-                        </select>
+                        <span style={{background:"#eff6ff",color:"#3b82f6",borderRadius:4,padding:"2px 6px",fontSize:11,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:110,display:"inline-block"}} title={t.categoria}>{t.categoria}</span>
                         <button onClick={()=>setInlineEdit({pattern:t.vendor||"",name:t.vendor||"",categoria:t.categoria})}
-                          title="Crea regola"
-                          style={{background:"transparent",border:"none",cursor:"pointer",fontSize:12,padding:"1px 3px",color:C.muted}}>✏️</button>
+                          title="Modifica categoria"
+                          style={{background:"transparent",border:"none",cursor:"pointer",fontSize:11,padding:"1px 3px",color:C.muted,flexShrink:0}}>✏️</button>
                       </div>
                     </td>
                     <td style={{padding:"5px 6px",color:C.muted,whiteSpace:"nowrap",fontSize:12,overflow:"hidden"}}>{t.date}</td>
                     <td style={{padding:"5px 6px",color:C.text,fontWeight:600,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.vendor||"—"}</td>
-                    <td style={{padding:"5px 6px",color:C.faint,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.descrizione}</td>
+                    <td style={{padding:"5px 6px",color:C.faint,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={t.descrizione}>{t.descrizione}</td>
                     <td style={{padding:"5px 6px",color:"#ef4444",fontWeight:700,whiteSpace:"nowrap",textAlign:"right",fontSize:12}}>{fmt(t.uscita)}</td>
                   </tr>
                 ))}
@@ -1157,7 +1146,8 @@ function CategorieTab({txs,excInvest,selYear,selMonth,onRuleAdded}){
     {/* Modal overlay per creazione regola */}
     {inlineEdit&&(
       <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}
-        onClick={()=>setInlineEdit(null)}>
+        onClick={()=>setInlineEdit(null)}
+        onKeyDown={e=>e.key==="Escape"&&setInlineEdit(null)}>
         <div style={{background:"#fff",borderRadius:14,padding:28,maxWidth:520,width:"100%",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}
           onClick={e=>e.stopPropagation()}>
           <div style={{fontSize:17,fontWeight:800,color:"#1e40af",marginBottom:18}}>✏️ Crea regola di categorizzazione</div>
@@ -2005,10 +1995,10 @@ function App(){
 
             {/* KPIs */}
             <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
-              <Card label="Entrate" value={fmt(agg.totalE)} sub={excInvest?"senza investimenti":periodLabel} color="#6ee7b7" icon="↑"/>
-              <Card label="Uscite"  value={fmt(agg.totalU)} sub={excInvest?"senza investimenti":periodLabel} color="#fca5a5" icon="↓"/>
-              <Card label="Saldo"   value={fmt(Math.abs(agg.totalE-agg.totalU))} sub={(agg.totalE-agg.totalU)>=0?"positivo":"negativo"} color={(agg.totalE-agg.totalU)>=0?"#6ee7b7":"#fca5a5"} icon="≈"/>
-              <Card label="Transaz." value={filteredTxs.length.toLocaleString()} sub={periodLabel} color="#93c5fd" icon="#"/>
+              <Card label="Entrate" value={fmt(agg.totalE)} sub={excInvest?"senza investimenti":periodLabel} color="#22c55e" icon="↑"/>
+              <Card label="Uscite"  value={fmt(agg.totalU)} sub={excInvest?"senza investimenti":periodLabel} color="#ef4444" icon="↓"/>
+              <Card label="Saldo"   value={fmt(Math.abs(agg.totalE-agg.totalU))} sub={(agg.totalE-agg.totalU)>=0?"positivo":"negativo"} color={(agg.totalE-agg.totalU)>=0?"#16a34a":"#dc2626"} icon="≈"/>
+              <Card label="Transaz." value={filteredTxs.length.toLocaleString()} sub={periodLabel} color="#8b5cf6" icon="#"/>
             </div>
 
             {/* TABS */}
