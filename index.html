@@ -333,7 +333,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v8.2 · 20 mag 2025";
+const VERSION="v8.4 · 20 mag 2025";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",maximumFractionDigits:0}).format(n||0);
@@ -503,7 +503,14 @@ function parseCSV(text){
     const p=line.trim().split(";");
     if(p.length<4)continue;
     const dateStr=p[0]?.trim(),caus=p[4]?.trim()||"",desc=p[5]?.trim()||"";
-    if(!caus&&desc.includes("Saldo"))continue;
+    if(!caus&&desc.toLowerCase().includes("saldo")){
+      const valSaldo=entrata||Math.abs(uscita);
+      if(valSaldo>0&&desc.toLowerCase().includes("iniziale"))
+        balanceMap[dateStr]={tipo:"iniziale",valore:entrata?valSaldo:-valSaldo};
+      else if(valSaldo>0&&desc.toLowerCase().includes("finale"))
+        balanceMap[dateStr]={tipo:"finale",valore:entrata?valSaldo:-valSaldo};
+      continue;
+    }
     const uscita=Math.abs(parseAmt(p[2])),entrata=parseAmt(p[3]);
     if(uscita===0&&entrata===0)continue;
     try{
@@ -758,7 +765,7 @@ function Sidebar({years,selYears,selMonths,toggleYear,toggleMonth}){
 
 // ── TAB COMPONENTS ────────────────────────────────────────────────────────────
 
-function PanoramicaTab({allTxs,filteredTxs,selYears,selYear,selMonth,excInvest}){
+function PanoramicaTab({allTxs,filteredTxs,selYears,selYear,selMonth,excInvest,balanceSaldos}){
   // selYears = array, selYear = compat alias (null if multi-year)
   // Quando anno selezionato: usa i dati filtrati; altrimenti tutto lo storico
   const displayTxs=selYears.length>0?filteredTxs:allTxs;
@@ -768,9 +775,9 @@ function PanoramicaTab({allTxs,filteredTxs,selYears,selYear,selMonth,excInvest})
       <div className="grid2">
         <Box title={selYears.length>1?`Entrate vs Uscite — ${selYears.join(", ")}`:selYear?(selMonth?`Entrate vs Uscite — ${MONTHS_IT[selMonth-1]} ${selYear}`:`Entrate vs Uscite mensili — ${selYear}`):"Entrate vs Uscite per Anno"} minH={300}>
           <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={selYears&&selYears.length>0?agg.monthly:agg.yearly}>
+            <BarChart data={selYears.length>0?agg.monthly:agg.yearly}>
               <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
-              <XAxis dataKey={selYears&&selYears.length>0?"label":"year"} tick={{fill:C.muted,fontSize:11}}/>
+              <XAxis dataKey={selYears.length>0?"label":"year"} tick={{fill:C.muted,fontSize:11}}/>
               <YAxis tickFormatter={fmtK} tick={{fill:C.muted,fontSize:10}}/>
               <Tooltip content={<Tip/>}/>
               <Legend wrapperStyle={{fontSize:12}}/>
@@ -781,14 +788,14 @@ function PanoramicaTab({allTxs,filteredTxs,selYears,selYear,selMonth,excInvest})
         </Box>
         <Box title={selYears.length>1?`Saldo — ${selYears.join(", ")}`:selYear?(selMonth?`Saldo — ${MONTHS_IT[selMonth-1]} ${selYear}`:`Saldo mensile — ${selYear}`):"Saldo Netto per Anno"} minH={300}>
           <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={selYears&&selYears.length>0?agg.monthly:agg.yearly}>
+            <BarChart data={selYears.length>0?agg.monthly:agg.yearly}>
               <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
-              <XAxis dataKey={selYears&&selYears.length>0?"label":"year"} tick={{fill:C.muted,fontSize:11}}/>
+              <XAxis dataKey={selYears.length>0?"label":"year"} tick={{fill:C.muted,fontSize:11}}/>
               <YAxis tickFormatter={fmtK} tick={{fill:C.muted,fontSize:10}}/>
               <Tooltip content={<Tip/>}/>
               <ReferenceLine y={0} stroke="#94a3b8"/>
               <Bar dataKey="saldo" name="Saldo" radius={[3,3,0,0]}>
-                {(selYear?agg.monthly:agg.yearly).map((_,i)=>{const d=selYear?agg.monthly[i]:agg.yearly[i];return<Cell key={i} fill={d.saldo>=0?"#6ee7b7":"#fca5a5"}/>;} )}
+                {(selYears.length>0?agg.monthly:agg.yearly).map((d,i)=><Cell key={i} fill={d.saldo>=0?"#6ee7b7":"#fca5a5"}/>)}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -829,7 +836,7 @@ function MensileTab({txs,excInvest}){
             <Tooltip content={<Tip/>}/>
             <ReferenceLine y={0} stroke="#94a3b8"/>
             <Bar dataKey="saldo" name="Saldo" radius={[2,2,0,0]}>
-              {agg.monthly.map((_,i)=><Cell key={i} fill={agg.monthly[i].saldo>=0?"#6ee7b7":"#fca5a5"}/>)}
+              {agg.monthly.map((d,i)=><Cell key={i} fill={d.saldo>=0?"#6ee7b7":"#fca5a5"}/>)}
             </Bar>
           </BarChart>
         </ResponsiveContainer>
@@ -878,7 +885,7 @@ function SunburstChart({txs, excInvest, selCats, toggleCat}) {
     const d3 = window.d3;
     if (!d3 || !svgRef.current) return;
     const el = svgRef.current;
-    const W = Math.min(el.clientWidth||480, 480);
+    const W = Math.min(el.clientWidth||560, 560);
     const R = W/2;
     d3.select(el).selectAll("*").remove();
 
@@ -888,13 +895,13 @@ function SunburstChart({txs, excInvest, selCats, toggleCat}) {
       .append("g").attr("transform", `translate(${R},${R})`);
 
     const root = d3.hierarchy(buildData).sum(d=>d.value||0).sort((a,b)=>b.value-a.value);
-    d3.partition().size([2*Math.PI, R*0.88])(root);
+    d3.partition().size([2*Math.PI, R*0.92])(root);
 
     const arc = d3.arc()
       .startAngle(d=>d.x0).endAngle(d=>d.x1)
-      .padAngle(()=>0.022).padRadius(R*0.35)
-      .innerRadius(d=>d.depth===1?R*0.29:d.y0+3)
-      .outerRadius(d=>d.depth===1?d.y1-6:d.y1-3);
+      .padAngle(()=>0.016).padRadius(R*0.35)
+      .innerRadius(d=>d.depth===1?R*0.22:d.y0+3)
+      .outerRadius(d=>d.depth===1?d.y1-2:d.y1-2);
 
     const getColor = d => {
       if (d.depth===0) return "none";
@@ -931,7 +938,7 @@ function SunburstChart({txs, excInvest, selCats, toggleCat}) {
 
     // Inner ring labels (categories)
     svg.selectAll("text.inner")
-      .data(root.descendants().filter(d=>d.depth===1&&(d.x1-d.x0)>0.18))
+      .data(root.descendants().filter(d=>d.depth===1&&(d.x1-d.x0)>0.14))
       .join("text").attr("class","inner")
       .attr("transform", d=>{
         const angle=(d.x0+d.x1)/2, r=(d.y0+d.y1)/2;
@@ -939,7 +946,7 @@ function SunburstChart({txs, excInvest, selCats, toggleCat}) {
         return `rotate(${deg}) translate(${r},0) rotate(${angle>Math.PI?180:0})`;
       })
       .attr("text-anchor","middle").attr("dy","0.35em")
-      .attr("fill","#fff").attr("font-size", d=>(d.x1-d.x0)>0.45?12:10).attr("font-weight","700")
+      .attr("fill","#1e293b").attr("font-size", d=>(d.x1-d.x0)>0.4?13:11).attr("font-weight","700")
       .attr("pointer-events","none")
       .text(d=>{
         const n=d.data.name;
@@ -948,7 +955,7 @@ function SunburstChart({txs, excInvest, selCats, toggleCat}) {
 
     // Outer ring labels (vendors) - only if segment is wide enough
     svg.selectAll("text.outer")
-      .data(root.descendants().filter(d=>d.depth===2&&(d.x1-d.x0)>0.12))
+      .data(root.descendants().filter(d=>d.depth===2&&(d.x1-d.x0)>0.10))
       .join("text").attr("class","outer")
       .attr("transform", d=>{
         const angle=(d.x0+d.x1)/2, r=(d.y0+d.y1)/2;
@@ -956,7 +963,7 @@ function SunburstChart({txs, excInvest, selCats, toggleCat}) {
         return `rotate(${deg}) translate(${r},0) rotate(${angle>Math.PI?180:0})`;
       })
       .attr("text-anchor","middle").attr("dy","0.35em")
-      .attr("fill","#fff").attr("font-size",9).attr("font-weight","600")
+      .attr("fill","#1e293b").attr("font-size",10).attr("font-weight","600")
       .attr("pointer-events","none")
       .text(d=>{const n=d.data.name;return n.length>9?n.slice(0,8)+"…":n;});
 
@@ -973,8 +980,8 @@ function SunburstChart({txs, excInvest, selCats, toggleCat}) {
   }, [buildData, selCats]);
 
   return (
-    <div style={{position:"relative",display:"inline-block",width:"100%",maxWidth:480}}>
-      <svg ref={svgRef} style={{width:"100%",maxWidth:480,display:"block",margin:"0 auto"}}/>
+    <div style={{position:"relative",display:"inline-block",width:"100%",maxWidth:560}}>
+      <svg ref={svgRef} style={{width:"100%",maxWidth:560,display:"block",margin:"0 auto"}}/>
       {tip&&(
         <div style={{position:"absolute",left:tip.x,top:tip.y,background:"#1e293b",color:"#fff",
           borderRadius:8,padding:"8px 12px",fontSize:12,pointerEvents:"none",zIndex:100,
@@ -1090,7 +1097,7 @@ function CategorieTab({txs,excInvest,selYear,selMonth,onRuleAdded}){
         </div>
       )}
 
-      {/* 3 colonne: Barre | Ciambella | Fornitori */}
+      {/* 3 colonne: Barre | Ciambella | Venditori */}
       <div className="cat-grid" style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr) minmax(280px,380px)",gap:8,alignItems:"start"}}>
         {/* BARRE — sinistra */}
         <Box title="Totale per categoria — clicca (CTRL+click = multiplo)">
@@ -1118,7 +1125,7 @@ function CategorieTab({txs,excInvest,selYear,selMonth,onRuleAdded}){
         </Box>
 
         {/* FORNITORI categoria selezionata — destra */}
-        <Box title={selCats.length>0?`Fornitori: ${selCats.length===1?selCats[0]:selCats.length+' categorie'}`:"Fornitori"}>
+        <Box title={selCats.length>0?`Venditori: ${selCats.length===1?selCats[0]:selCats.length+' categorie'}`:"Venditori"}>
           {selCats.length===0?(
             <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:200,color:C.faint,gap:10}}>
               <div style={{fontSize:28}}>👈</div>
@@ -1201,11 +1208,11 @@ function CategorieTab({txs,excInvest,selYear,selMonth,onRuleAdded}){
             <button onClick={()=>setSortBy("amount")} style={{background:sortBy==="amount"?"#60a5fa":"transparent",color:sortBy==="amount"?"#fff":C.muted,border:`1px solid ${sortBy==="amount"?"#60a5fa":C.border}`,borderRadius:5,padding:"3px 10px",cursor:"pointer",fontSize:11}}>Importo ↓</button>
             <span style={{marginLeft:"auto",fontSize:11,color:C.faint}}>Totale: <strong style={{color:C.text}}>{fmt(tableRows.reduce((s,t)=>s+t.uscita,0))}</strong></span>
           </div>
-            <div style={{overflowX:"auto"}}>
-            <table style={{width:"100%",borderCollapse:"collapse",fontSize:13,tableLayout:"auto"}}>
+            <div style={{overflowX:"auto",WebkitOverflowScrolling:"touch"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:13,tableLayout:"auto",minWidth:700}}>
               <thead>
                 <tr style={{borderBottom:`2px solid ${C.border}`,background:"#f8fafc"}}>
-                  {["Categoria","Data","Fornitore","Descrizione","Importo"].map(h=>(
+                  {["Categoria","Data","Venditore","Descrizione","Importo"].map(h=>(
                     <th key={h} style={{textAlign:h==="Importo"?"right":"left",padding:"7px 8px",color:C.muted,fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:0.5,whiteSpace:"nowrap",overflow:"hidden"}}>{h}</th>
                   ))}
                 </tr>
@@ -1225,7 +1232,7 @@ function CategorieTab({txs,excInvest,selYear,selMonth,onRuleAdded}){
                     </td>
                     <td style={{padding:"5px 6px",color:C.muted,whiteSpace:"nowrap",fontSize:12,overflow:"hidden"}}>{t.date}</td>
                     <td style={{padding:"5px 6px",color:C.text,fontWeight:600,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.vendor||"—"}</td>
-                    <td style={{padding:"5px 6px",color:C.faint,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={t.descrizione}>{t.descrizione}</td>
+                    <td style={{padding:"5px 6px",color:C.faint,fontSize:11,lineHeight:1.4,wordBreak:"break-word",minWidth:200}} title={t.descrizione}>{t.descrizione}</td>
                     <td style={{padding:"5px 6px",color:"#ef4444",fontWeight:700,whiteSpace:"nowrap",textAlign:"right",fontSize:12}}>{fmt(t.uscita)}</td>
                   </tr>
                 ))}
@@ -1295,7 +1302,7 @@ function CategorieTab({txs,excInvest,selYear,selMonth,onRuleAdded}){
   );
 }
 
-function FornitoriTab({allTxs,filteredTxs,selYear,selMonth}){
+function VenditoriTab({allTxs,filteredTxs,selYear,selMonth}){
   const [catFilter,setCatFilter]=useState("");
   const [selVendor,setSelVendor]=useState(null);
   const [showInvest,setShowInvest]=useState(false);
@@ -1442,6 +1449,21 @@ function InvestimentiTab({txs}){
   const pnlNet=pnl.totalIn-pnl.totalOut;
   return(
     <div style={{display:"flex",flexDirection:"column",gap:16}}>
+      {balanceSaldos&&Object.keys(balanceSaldos).length>0&&(()=>{
+        const entries=Object.entries(balanceSaldos).sort((a,b)=>b[0].localeCompare(a[0]));
+        const last=entries[0];
+        return(
+          <div style={{background:"#f0fdf4",border:"1px solid #86efac",borderRadius:10,padding:"10px 16px",display:"flex",alignItems:"center",gap:12,fontSize:13}}>
+            <span style={{fontSize:18}}>💰</span>
+            <div>
+              <span style={{color:"#166534",fontWeight:700}}>Saldo rilevato dai CSV: </span>
+              <span style={{color:"#15803d",fontWeight:800,fontSize:15}}>{fmt(Math.abs(last[1].valore))}</span>
+              <span style={{color:"#4ade80",marginLeft:6,fontSize:11}}>({last[1].tipo} — {last[0]})</span>
+            </div>
+            <div style={{marginLeft:"auto",color:"#86efac",fontSize:11}}>da {Object.keys(balanceSaldos).length} file CSV</div>
+          </div>
+        );
+      })()}
       <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
         <Card label="Acquistato"   value={fmt(pnl.totalOut)} sub="uscite per asset"   color="#fca5a5" icon="📉"/>
         <Card label="Rientrato"    value={fmt(pnl.totalIn)}  sub="entrate da vendite" color="#6ee7b7" icon="📈"/>
@@ -1876,7 +1898,8 @@ function App(){
   const [setup,setSetup]=useState(false);
   const [ready,setReady]=useState(false);
   const [rulesRev,setRulesRev]=useState(0);
-  const [modal,setModal]=useState(null); // {title,message,danger,onConfirm,pendingFiles,handler}
+  const [modal,setModal]=useState(null);
+  const [balanceSaldos,setBalanceSaldos]=useState({}); // saldi iniziali/finali dai CSV // {title,message,danger,onConfirm,pendingFiles,handler}
   const pendingFilesRef=React.useRef(null); // bumped when rules change to trigger re-parse
 
   useEffect(()=>{
@@ -1904,7 +1927,7 @@ function App(){
   async function parseFiles(files){
     let rows=[];
     for(const f of files){const txt=await f.text();rows.push(...parseCSV(txt));}
-    return rows;
+    return {rows, balanceMap};
   }
 
   // Modalità 1: Aggiungi — salta i duplicati (comportamento normale)
@@ -1913,7 +1936,7 @@ function App(){
     files=Array.isArray(files)?files:Array.from(files.target?.files||[]);
     if(!files.length)return;
     setMsg(`⏳ Leggo ${files.length} file...`);
-    const newRows=await parseFiles(files);
+    const {rows:newRows, balanceMap:newBal}=await parseFiles(files);
     const existKeys=new Set(txs.map(t=>`${t.date}|${t.uscita}|${t.entrata}|${t.causale}`));
     const toAdd=newRows.filter(t=>!existKeys.has(`${t.date}|${t.uscita}|${t.entrata}|${t.causale}`));
     setMsg(`📊 Trovate ${newRows.length} transazioni · ${toAdd.length} nuove · ${newRows.length-toAdd.length} già presenti`);
@@ -1936,7 +1959,7 @@ function App(){
     files=Array.isArray(files)?files:Array.from(files.target?.files||[]);
     if(!files.length)return;
     setMsg(`⏳ Analizzo ${files.length} file...`);
-    const newRows=await parseFiles(files);
+    const {rows:newRows, balanceMap:newBal}=await parseFiles(files);
     if(!newRows.length){setMsg("❌ Nessuna riga valida nei file.");setTimeout(()=>setMsg(""),3000);return;}
     // Calcola il range di date coperto dai nuovi file
     const newDates=newRows.map(r=>r.date).sort();
@@ -1967,7 +1990,7 @@ function App(){
     lsSave([]);setTxs([]);
     try{await gsClear(url);}catch{}
     setMsg(`⏳ Leggo ${files.length} file CSV...`);
-    const newRows=await parseFiles(files);
+    const {rows:newRows, balanceMap:newBal}=await parseFiles(files);
     const sorted=newRows.sort((a,b)=>a.date.localeCompare(b.date));
     setMsg(`✅ ${sorted.length} transazioni importate · Sincronizzazione Google Sheets in corso — non chiudere la pagina...`);
     setTxs(sorted);lsSave(sorted);
@@ -2013,7 +2036,7 @@ function App(){
   if(setup)return<Setup onSave={handleSaveUrl}/>;
 
 
-  const TABS=[["panoramica","📊 Panoramica"],["mensile","📅 Mensile"],["categorie","🏷 Categorie"],["fornitori","🏪 Fornitori"],["investimenti","📈 Investimenti"],["regole","🔧 Regole"]];
+  const TABS=[["panoramica","📊 Panoramica"],["mensile","📅 Mensile"],["categorie","🏷 Categorie"],["fornitori","🏪 Venditori"],["investimenti","📈 Investimenti"],["regole","🔧 Regole"]];
 
   return(
     <div style={{display:"flex",height:"100vh",overflow:"hidden",background:C.bg}}>
@@ -2138,7 +2161,7 @@ function App(){
               ))}
             </div>
 
-            {tab==="panoramica"&&<PanoramicaTab allTxs={txs} filteredTxs={filteredTxs} selYears={selYears} selYear={selYear} selMonth={selMonth} excInvest={excInvest}/>}
+            {tab==="panoramica"&&<PanoramicaTab allTxs={txs} filteredTxs={filteredTxs} selYears={selYears} selYear={selYear} selMonth={selMonth} excInvest={excInvest} balanceSaldos={balanceSaldos}/>}
             {tab==="mensile"&&<MensileTab txs={filteredTxs} excInvest={excInvest}/>}
             {tab==="categorie"&&<CategorieTab txs={filteredTxs} excInvest={excInvest} selYear={selYear} selMonth={selMonth} onRuleAdded={()=>{
               const rules=rulesGet();
@@ -2154,7 +2177,7 @@ function App(){
               }
               if(url)settingsPush(url);
             }}/>}
-            {tab==="fornitori"&&<FornitoriTab allTxs={txs} filteredTxs={filteredTxs} selYear={selYear} selMonth={selMonth}/>}
+            {tab==="venditori"&&<VenditoriTab allTxs={txs} filteredTxs={filteredTxs} selYear={selYear} selMonth={selMonth}/>}
             {tab==="investimenti"&&<InvestimentiTab txs={filteredTxs}/>}
             {tab==="regole"&&<RulesTab gsUrl={url} txs={txs} onRulesChange={()=>{
               const rules=rulesGet();
