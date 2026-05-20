@@ -9,6 +9,7 @@
   <script src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
   <script src="https://unpkg.com/recharts@2.4.3/umd/Recharts.js"></script>
   <script src="https://unpkg.com/@babel/standalone@7.23.6/babel.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
     body{background:#f8fafc;font-family:system-ui,-apple-system,sans-serif;color:#1e293b;height:100vh;overflow:hidden}
@@ -332,7 +333,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v8.1 · 20 mag 2025";
+const VERSION="v8.2 · 20 mag 2025";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",maximumFractionDigits:0}).format(n||0);
@@ -757,36 +758,19 @@ function Sidebar({years,selYears,selMonths,toggleYear,toggleMonth}){
 
 // ── TAB COMPONENTS ────────────────────────────────────────────────────────────
 
-function PanoramicaTab({allTxs,filteredTxs,selYear,selMonth,excInvest}){
+function PanoramicaTab({allTxs,filteredTxs,selYears,selYear,selMonth,excInvest}){
+  // selYears = array, selYear = compat alias (null if multi-year)
   // Quando anno selezionato: usa i dati filtrati; altrimenti tutto lo storico
-  const displayTxs=selYear?filteredTxs:allTxs;
+  const displayTxs=selYears.length>0?filteredTxs:allTxs;
   const agg=useMemo(()=>aggregate(displayTxs,excInvest),[displayTxs,excInvest]);
-  const years=[...new Set(allTxs.map(t=>t.year))].sort();
-  // Heatmap data
-  const heatGrid=useMemo(()=>{
-    const g={};let max=0;
-    allTxs.filter(t=>t.uscita>0&&t.categoria!=="📈 Investimenti").forEach(t=>{
-      const k=`${t.year}-${t.month}`;g[k]=(g[k]||0)+t.uscita;if(g[k]>max)max=g[k];
-    });
-    return{g,max};
-  },[allTxs]);
-  const heatColor=v=>{
-    if(!v)return"#f1f5f9";
-    const i=v/heatGrid.max;
-    if(i<0.2)return"#dbeafe";
-    if(i<0.4)return"#93c5fd";
-    if(i<0.6)return"#60a5fa";
-    if(i<0.8)return"#3b82f6";
-    return"#1d4ed8";
-  };
   return(
     <div style={{display:"flex",flexDirection:"column",gap:16}}>
       <div className="grid2">
-        <Box title={selYear?(selMonth?`Entrate vs Uscite — ${MONTHS_IT[selMonth-1]} ${selYear}`:`Entrate vs Uscite mensili — ${selYear}`):"Entrate vs Uscite per Anno"} minH={300}>
+        <Box title={selYears.length>1?`Entrate vs Uscite — ${selYears.join(", ")}`:selYear?(selMonth?`Entrate vs Uscite — ${MONTHS_IT[selMonth-1]} ${selYear}`:`Entrate vs Uscite mensili — ${selYear}`):"Entrate vs Uscite per Anno"} minH={300}>
           <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={selYear?agg.monthly:agg.yearly}>
+            <BarChart data={selYears&&selYears.length>0?agg.monthly:agg.yearly}>
               <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
-              <XAxis dataKey={selYear?"label":"year"} tick={{fill:C.muted,fontSize:11}}/>
+              <XAxis dataKey={selYears&&selYears.length>0?"label":"year"} tick={{fill:C.muted,fontSize:11}}/>
               <YAxis tickFormatter={fmtK} tick={{fill:C.muted,fontSize:10}}/>
               <Tooltip content={<Tip/>}/>
               <Legend wrapperStyle={{fontSize:12}}/>
@@ -795,11 +779,11 @@ function PanoramicaTab({allTxs,filteredTxs,selYear,selMonth,excInvest}){
             </BarChart>
           </ResponsiveContainer>
         </Box>
-        <Box title={selYear?(selMonth?`Saldo — ${MONTHS_IT[selMonth-1]} ${selYear}`:`Saldo mensile — ${selYear}`):"Saldo Netto per Anno"} minH={300}>
+        <Box title={selYears.length>1?`Saldo — ${selYears.join(", ")}`:selYear?(selMonth?`Saldo — ${MONTHS_IT[selMonth-1]} ${selYear}`:`Saldo mensile — ${selYear}`):"Saldo Netto per Anno"} minH={300}>
           <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={selYear?agg.monthly:agg.yearly}>
+            <BarChart data={selYears&&selYears.length>0?agg.monthly:agg.yearly}>
               <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
-              <XAxis dataKey={selYear?"label":"year"} tick={{fill:C.muted,fontSize:11}}/>
+              <XAxis dataKey={selYears&&selYears.length>0?"label":"year"} tick={{fill:C.muted,fontSize:11}}/>
               <YAxis tickFormatter={fmtK} tick={{fill:C.muted,fontSize:10}}/>
               <Tooltip content={<Tip/>}/>
               <ReferenceLine y={0} stroke="#94a3b8"/>
@@ -810,36 +794,6 @@ function PanoramicaTab({allTxs,filteredTxs,selYear,selMonth,excInvest}){
           </ResponsiveContainer>
         </Box>
       </div>
-      {/* Heatmap */}
-      <Box title="Mappa calore spese mensili (esclusi investimenti)">
-        <div style={{overflowX:"auto"}}>
-          <div style={{display:"grid",gridTemplateColumns:`56px repeat(12,1fr)`,gap:3,minWidth:500}}>
-            <div/>
-            {MONTHS_IT.map(m=><div key={m} style={{textAlign:"center",fontSize:10,color:C.muted,fontWeight:600,padding:"2px 0"}}>{m}</div>)}
-            {years.map(y=>[
-              <div key={y+"-l"} style={{fontSize:10,color:C.muted,fontWeight:600,display:"flex",alignItems:"center",justifyContent:"flex-end",paddingRight:6}}>{y}</div>,
-              ...[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>{
-                const v=heatGrid.g[`${y}-${m}`]||0;
-                const hi=(v/heatGrid.max)>0.5;
-                return(
-                  <div key={y+"-"+m} title={`${MONTHS_IT[m-1]} ${y}: ${fmt(v)}`} style={{
-                    background:heatColor(v),borderRadius:4,padding:"3px 1px",
-                    textAlign:"center",fontSize:9,color:hi?"#fff":"#64748b",
-                    minHeight:26,display:"flex",alignItems:"center",justifyContent:"center"
-                  }}>{v>0?fmtKS(v):""}</div>
-                );
-              })
-            ])}
-          </div>
-        </div>
-        <div style={{marginTop:10,display:"flex",alignItems:"center",gap:6,fontSize:10,color:C.faint}}>
-          <span>Basso</span>
-          {["#dbeafe","#93c5fd","#60a5fa","#3b82f6","#1d4ed8"].map((c,i)=>(
-            <div key={i} style={{width:20,height:12,background:c,borderRadius:2}}/>
-          ))}
-          <span>Alto</span>
-        </div>
-      </Box>
     </div>
   );
 }
@@ -883,6 +837,158 @@ function MensileTab({txs,excInvest}){
     </div>
   );
 }
+
+// ── SUNBURST CHART ────────────────────────────────────────────────────────────
+const SB_PALETTE = [
+  "#7ec8e3","#a8d5a2","#f7b267","#e8a0bf","#b5c7ed",
+  "#f4c2c2","#aed9a2","#ffd6a5","#c9b7e8","#b5ead7"
+];
+
+function SunburstChart({txs, excInvest, selCats, toggleCat}) {
+  const svgRef = React.useRef(null);
+  const [tip, setTip] = React.useState(null);
+
+  const buildData = React.useMemo(() => {
+    const filtered = txs.filter(t => t.uscita>0 && (!excInvest||!NEUTRAL_CATS.includes(t.categoria)));
+    const catMap = {};
+    filtered.forEach(t => {
+      if (!catMap[t.categoria]) catMap[t.categoria] = {total:0, vendors:{}};
+      catMap[t.categoria].total += t.uscita;
+      const v = t.vendor||"Altro";
+      catMap[t.categoria].vendors[v] = (catMap[t.categoria].vendors[v]||0)+t.uscita;
+    });
+    const total = Object.values(catMap).reduce((s,v)=>s+v.total,0);
+    const top5 = Object.entries(catMap).sort((a,b)=>b[1].total-a[1].total).slice(0,5);
+    return {
+      total,
+      name:"root",
+      children: top5.map(([cat,d],i) => ({
+        name: cat,
+        color: SB_PALETTE[i],
+        total: d.total,
+        pct: Math.round(d.total/total*100),
+        children: Object.entries(d.vendors)
+          .sort((a,b)=>b[1]-a[1]).slice(0,3)
+          .map(([v,val]) => ({name:v, value:val, pct:Math.round(val/d.total*100)}))
+      }))
+    };
+  }, [txs, excInvest]);
+
+  React.useEffect(() => {
+    const d3 = window.d3;
+    if (!d3 || !svgRef.current) return;
+    const el = svgRef.current;
+    const W = Math.min(el.clientWidth||480, 480);
+    const R = W/2;
+    d3.select(el).selectAll("*").remove();
+
+    const svg = d3.select(el)
+      .attr("viewBox", `0 0 ${W} ${W}`)
+      .attr("width", W).attr("height", W)
+      .append("g").attr("transform", `translate(${R},${R})`);
+
+    const root = d3.hierarchy(buildData).sum(d=>d.value||0).sort((a,b)=>b.value-a.value);
+    d3.partition().size([2*Math.PI, R*0.88])(root);
+
+    const arc = d3.arc()
+      .startAngle(d=>d.x0).endAngle(d=>d.x1)
+      .padAngle(()=>0.022).padRadius(R*0.35)
+      .innerRadius(d=>d.depth===1?R*0.29:d.y0+3)
+      .outerRadius(d=>d.depth===1?d.y1-6:d.y1-3);
+
+    const getColor = d => {
+      if (d.depth===0) return "none";
+      let n=d; while(n.depth>1) n=n.parent;
+      const c = n.data.color||"#ccc";
+      return d.depth===1 ? c : c+"99";
+    };
+
+    svg.selectAll("path")
+      .data(root.descendants().filter(d=>d.depth))
+      .join("path")
+      .attr("d", arc)
+      .attr("fill", getColor)
+      .attr("stroke","#fff").attr("stroke-width",1.5)
+      .attr("opacity", d => {
+        if (!selCats||selCats.length===0) return 1;
+        let n=d; while(n.depth>1) n=n.parent;
+        return selCats.includes(n.data.name)?1:0.3;
+      })
+      .style("cursor","pointer")
+      .on("mousemove",(event,d)=>{
+        let n=d; while(n.depth>1) n=n.parent;
+        setTip({x:event.offsetX+12,y:event.offsetY-10,
+          name:d.data.name,
+          val:fmt(d.value),
+          pct:Math.round(d.value/buildData.total*100),
+          cat:n.data.name});
+      })
+      .on("mouseleave",()=>setTip(null))
+      .on("click",(event,d)=>{
+        let n=d; while(n.depth>1) n=n.parent;
+        toggleCat(n.data.name, event.ctrlKey||event.metaKey);
+      });
+
+    // Inner ring labels (categories)
+    svg.selectAll("text.inner")
+      .data(root.descendants().filter(d=>d.depth===1&&(d.x1-d.x0)>0.18))
+      .join("text").attr("class","inner")
+      .attr("transform", d=>{
+        const angle=(d.x0+d.x1)/2, r=(d.y0+d.y1)/2;
+        const deg=angle*180/Math.PI-90;
+        return `rotate(${deg}) translate(${r},0) rotate(${angle>Math.PI?180:0})`;
+      })
+      .attr("text-anchor","middle").attr("dy","0.35em")
+      .attr("fill","#fff").attr("font-size", d=>(d.x1-d.x0)>0.45?12:10).attr("font-weight","700")
+      .attr("pointer-events","none")
+      .text(d=>{
+        const n=d.data.name;
+        return n.length>12?n.slice(0,11)+"…":n;
+      });
+
+    // Outer ring labels (vendors) - only if segment is wide enough
+    svg.selectAll("text.outer")
+      .data(root.descendants().filter(d=>d.depth===2&&(d.x1-d.x0)>0.12))
+      .join("text").attr("class","outer")
+      .attr("transform", d=>{
+        const angle=(d.x0+d.x1)/2, r=(d.y0+d.y1)/2;
+        const deg=angle*180/Math.PI-90;
+        return `rotate(${deg}) translate(${r},0) rotate(${angle>Math.PI?180:0})`;
+      })
+      .attr("text-anchor","middle").attr("dy","0.35em")
+      .attr("fill","#fff").attr("font-size",9).attr("font-weight","600")
+      .attr("pointer-events","none")
+      .text(d=>{const n=d.data.name;return n.length>9?n.slice(0,8)+"…":n;});
+
+    // Center label
+    svg.append("text")
+      .attr("text-anchor","middle").attr("dy","-0.2em")
+      .attr("fill","#64748b").attr("font-size",11).attr("font-weight","700")
+      .text("Spese");
+    svg.append("text")
+      .attr("text-anchor","middle").attr("dy","1em")
+      .attr("fill","#1e293b").attr("font-size",14).attr("font-weight","800")
+      .text(fmtK(buildData.total));
+
+  }, [buildData, selCats]);
+
+  return (
+    <div style={{position:"relative",display:"inline-block",width:"100%",maxWidth:480}}>
+      <svg ref={svgRef} style={{width:"100%",maxWidth:480,display:"block",margin:"0 auto"}}/>
+      {tip&&(
+        <div style={{position:"absolute",left:tip.x,top:tip.y,background:"#1e293b",color:"#fff",
+          borderRadius:8,padding:"8px 12px",fontSize:12,pointerEvents:"none",zIndex:100,
+          boxShadow:"0 4px 12px rgba(0,0,0,0.2)",minWidth:120}}>
+          <div style={{fontWeight:700,marginBottom:2}}>{tip.name}</div>
+          <div style={{color:"#94a3b8",fontSize:11}}>{tip.cat}</div>
+          <div style={{fontSize:14,fontWeight:800,color:"#60a5fa",marginTop:2}}>{tip.val}</div>
+          <div style={{color:"#94a3b8",fontSize:11}}>{tip.pct}% del totale</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 function CategorieTab({txs,excInvest,selYear,selMonth,onRuleAdded}){
   const [selCats,setSelCats]=useState([]); // [] = nessuna selezione
@@ -1006,32 +1112,9 @@ function CategorieTab({txs,excInvest,selYear,selMonth,onRuleAdded}){
           </ResponsiveContainer>
         </Box>
 
-        {/* DONUT — centro */}
-        <Box title="Distribuzione — clicca (CTRL+click = multiplo)">
-          <ResponsiveContainer width="100%" height={Math.max(400,catData.length*32)}>
-            <PieChart onClick={d=>{if(d?.activePayload?.[0]){const n=d.activePayload[0].name;toggleCat(n,d.nativeEvent?.ctrlKey||d.nativeEvent?.metaKey);}}}>
-              <Pie data={catData} dataKey="value" nameKey="name"
-                cx="50%" cy="50%" innerRadius="28%" outerRadius="58%"
-                paddingAngle={2} style={{cursor:"pointer"}}
-                label={({name,value,percent,cx,cy,midAngle,innerRadius,outerRadius})=>{
-                  if(percent<0.04)return null;
-                  const RADIAN=Math.PI/180;
-                  const radius=outerRadius*1.22;
-                  const x=cx+radius*Math.cos(-midAngle*RADIAN);
-                  const y=cy+radius*Math.sin(-midAngle*RADIAN);
-                  const short=name.length>12?name.slice(0,11)+"…":name;
-                  return(
-                    <text x={x} y={y} fill={C.text} textAnchor={x>cx?"start":"end"} dominantBaseline="central" fontSize={11} fontWeight={700}>
-                      {short}: {fmt(value)}
-                    </text>
-                  );
-                }}
-                labelLine={{stroke:C.faint,strokeWidth:1}}>
-                {catData.map((_,i)=><Cell key={i} fill={PASTEL[i%PASTEL.length]} opacity={selCats.length>0&&!selCats.includes(catData[i].name)?0.3:1}/>)}
-              </Pie>
-              <Tooltip formatter={v=>fmt(v)} contentStyle={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,fontSize:12}}/>
-            </PieChart>
-          </ResponsiveContainer>
+                {/* SUNBURST — centro */}
+        <Box title="Sunburst — clicca per selezionare (CTRL = multiplo)">
+          <SunburstChart txs={txs} excInvest={excInvest} selCats={selCats} toggleCat={toggleCat}/>
         </Box>
 
         {/* FORNITORI categoria selezionata — destra */}
@@ -2055,7 +2138,7 @@ function App(){
               ))}
             </div>
 
-            {tab==="panoramica"&&<PanoramicaTab allTxs={txs} filteredTxs={filteredTxs} selYear={selYear} selMonth={selMonth} excInvest={excInvest}/>}
+            {tab==="panoramica"&&<PanoramicaTab allTxs={txs} filteredTxs={filteredTxs} selYears={selYears} selYear={selYear} selMonth={selMonth} excInvest={excInvest}/>}
             {tab==="mensile"&&<MensileTab txs={filteredTxs} excInvest={excInvest}/>}
             {tab==="categorie"&&<CategorieTab txs={filteredTxs} excInvest={excInvest} selYear={selYear} selMonth={selMonth} onRuleAdded={()=>{
               const rules=rulesGet();
