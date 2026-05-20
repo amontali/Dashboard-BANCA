@@ -341,7 +341,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v8.6.1 · 20 mag 2025";
+const VERSION="v8.6.2 · 20 mag 2025";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",maximumFractionDigits:0}).format(n||0);
@@ -568,28 +568,34 @@ async function gsRead(url){
   }).filter(r=>r.date&&r.year>2000);
 }
 async function gsWrite(url,rows,onProgress){
-  // POST unica con tutti i dati — evita rate limiting di Apps Script
-  const CHUNK=300; // max ~300 righe per request (limite URL sicuro con POST)
+  // mode:no-cors bypassa il problema redirect POST di Apps Script
+  // Chunk da 100 righe sequenziali con pausa — stabile e senza rate limit
+  const CHUNK=100;
   const chunks=[];
   for(let i=0;i<rows.length;i+=CHUNK)chunks.push(rows.slice(i,i+CHUNK));
   const total=chunks.length;
   for(let i=0;i<chunks.length;i++){
     const chunk=chunks[i];
-    const body=JSON.stringify(chunk);
     try{
+      // POST no-cors: bypassa CORS preflight e redirect issues di Apps Script
       await fetch(`${url}?action=write`,{
         method:"POST",
-        body,
-        redirect:"follow",
-        headers:{"Content-Type":"text/plain"} // Apps Script accetta text/plain
+        mode:"no-cors",
+        body:JSON.stringify(chunk),
+        headers:{"Content-Type":"text/plain"}
       });
     }catch(e){
-      // Fallback GET per compatibilità vecchio script
-      const enc=encodeURIComponent(body);
-      await fetch(`${url}?action=write&data=${enc}`,{redirect:"follow"}).catch(()=>{});
+      // Fallback GET con chunk piccoli (compatibilità vecchio script)
+      const mini=[];
+      for(let j=0;j<chunk.length;j+=8)mini.push(chunk.slice(j,j+8));
+      for(const c of mini){
+        const enc=encodeURIComponent(JSON.stringify(c));
+        await fetch(`${url}?action=write&data=${enc}`,{redirect:"follow"}).catch(()=>{});
+        await new Promise(r=>setTimeout(r,150));
+      }
     }
     if(onProgress)onProgress(i+1,total,Math.round(rows.length*(i+1)/total));
-    await new Promise(r=>setTimeout(r,300)); // pausa tra chunk per evitare rate limit
+    await new Promise(r=>setTimeout(r,500)); // pausa tra chunk
   }
 }
 async function gsClear(url){
