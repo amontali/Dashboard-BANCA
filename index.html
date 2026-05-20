@@ -332,7 +332,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v8.0 · 20 mag 2025";
+const VERSION="v8.1 · 20 mag 2025";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",maximumFractionDigits:0}).format(n||0);
@@ -718,7 +718,9 @@ function Pill({children,active,onClick,color}){
 }
 
 // ── SIDEBAR ───────────────────────────────────────────────────────────────────
-function Sidebar({years,selYear,setSelYear,selMonth,setSelMonth}){
+function Sidebar({years,selYears,selMonths,toggleYear,toggleMonth}){
+  const selYear=selYears.length===1?selYears[0]:null;
+  const selMonth=selMonths.length===1?selMonths[0]:null;
   const SBtn=({label,active,onClick})=>(
     <button onClick={onClick} style={{
       width:"100%",padding:"6px 4px",marginBottom:2,
@@ -736,16 +738,16 @@ function Sidebar({years,selYear,setSelYear,selMonth,setSelMonth}){
       flexShrink:0,padding:"8px 4px"
     }}>
       <div style={{fontSize:8,color:C.faint,fontWeight:700,textAlign:"center",textTransform:"uppercase",letterSpacing:1,padding:"8px 0 6px"}}>ANNO</div>
-      <SBtn label="Tutti" active={!selYear} onClick={()=>{setSelYear(null);setSelMonth(null);}}/>
+      <SBtn label="Tutti" active={selYears.length===0} onClick={()=>{toggleYear(null,false);}}/>
       {years.map(y=>(
-        <SBtn key={y} label={y} active={selYear===y} onClick={()=>{setSelYear(selYear===y?null:y);setSelMonth(null);}}/>
+        <SBtn key={y} label={y} active={selYears.includes(y)} onClick={e=>{toggleYear(y,e.ctrlKey||e.metaKey);}}/>
       ))}
       {selYear&&(
         <>
           <div style={{height:1,background:C.border,margin:"8px 4px"}}/>
           <div style={{fontSize:8,color:C.faint,fontWeight:700,textAlign:"center",textTransform:"uppercase",letterSpacing:1,padding:"4px 0 6px"}}>MESE</div>
           {MONTHS_IT.map((m,i)=>(
-            <SBtn key={i} label={m} active={selMonth===i+1} onClick={()=>setSelMonth(selMonth===i+1?null:i+1)}/>
+            <SBtn key={i} label={m} active={selMonths.includes(i+1)} onClick={e=>{toggleMonth(i+1,e.ctrlKey||e.metaKey);}}/>
           ))}
         </>
       )}
@@ -883,7 +885,12 @@ function MensileTab({txs,excInvest}){
 }
 
 function CategorieTab({txs,excInvest,selYear,selMonth,onRuleAdded}){
-  const [selCat,setSelCat]=useState(null);
+  const [selCats,setSelCats]=useState([]); // [] = nessuna selezione
+  const selCat=selCats.length===1?selCats[0]:selCats.length>1?null:null; // compat
+  function toggleCat(name,ctrlKey){
+    if(!ctrlKey){setSelCats(prev=>prev.length===1&&prev[0]===name?[]:([name]));}
+    else{setSelCats(prev=>prev.includes(name)?prev.filter(x=>x!==name):[...prev,name]);}
+  }
   const [sortBy,setSortBy]=useState("date");
   const [inlineEdit,setInlineEdit]=useState(null); // {pattern,name,categoria}
 
@@ -897,10 +904,9 @@ function CategorieTab({txs,excInvest,selYear,selMonth,onRuleAdded}){
 
   // ── Serie temporale per categoria selezionata ──────────────────────────────
   const timeSeries=useMemo(()=>{
-    if(!selCat)return[];
-    // Se excInvest e categoria neutrale → serie vuota
-    if(excInvest&&NEUTRAL_CATS.includes(selCat))return[];
-    const filtered=txs.filter(t=>t.uscita>0&&t.categoria===selCat);
+    if(selCats.length===0)return[];
+    if(excInvest&&selCats.every(c=>NEUTRAL_CATS.includes(c)))return[];
+    const filtered=txs.filter(t=>t.uscita>0&&selCats.includes(t.categoria));
 
     if(selYear&&selMonth){
       // Vista GIORNALIERA — tutti i giorni del mese con zeri
@@ -929,30 +935,35 @@ function CategorieTab({txs,excInvest,selYear,selMonth,onRuleAdded}){
 
   // ── Tabella record ──────────────────────────────────────────────────────────
   const tableRows=useMemo(()=>{
-    if(!selCat)return[];
-    if(excInvest&&NEUTRAL_CATS.includes(selCat))return[];
-    const rows=txs.filter(t=>t.uscita>0&&t.categoria===selCat);
+    if(selCats.length===0)return[];
+    if(excInvest&&selCats.every(c=>NEUTRAL_CATS.includes(c)))return[];
+    const rows=txs.filter(t=>t.uscita>0&&selCats.includes(t.categoria));
     return sortBy==="date"
       ?[...rows].sort((a,b)=>b.date.localeCompare(a.date))
       :[...rows].sort((a,b)=>b.uscita-a.uscita);
   },[txs,selCat,sortBy]);
 
-  function openInlineEdit(t){
-    setInlineEdit({
-      pattern:t.vendor||"",
-      name:t.vendor||"",
-      categoria:t.categoria
-    });
-  }
   function saveInlineRule(){
-    if(!inlineEdit?.pattern?.trim()){setInlineEdit(null);return;}
-    const r=[...rulesGet(),{id:Date.now().toString(),pattern:inlineEdit.pattern.trim(),name:inlineEdit.name.trim()||null,category:inlineEdit.categoria}];
-    rulesSave(r);
+    const r=[...rulesGet()];
+    if(inlineEdit?.pattern?.trim()){
+      r.push({id:Date.now().toString(),pattern:inlineEdit.pattern.trim(),name:inlineEdit.name.trim()||null,category:inlineEdit.categoria});
+      rulesSave(r);
+    }
+    // Apply date change if modified
+    if(inlineEdit?._dateChanged&&inlineEdit?.date){
+      const [yyyy,mm,dd]=[inlineEdit.date.slice(0,4),inlineEdit.date.slice(5,7),inlineEdit.date.slice(8,10)];
+      const updated=lsGet().map(t2=>{
+        const key=t2.date+"|"+t2.uscita+"|"+t2.causale;
+        if(key===inlineEdit._key) return{...t2,date:inlineEdit.date,ym:`${yyyy}-${mm}`,year:+yyyy,month:+mm};
+        return t2;
+      });
+      lsSave(updated);
+    }
     setInlineEdit(null);
     onRuleAdded&&onRuleAdded();
   }
 
-  const trendTitle=selCat
+  const trendTitle=selCats.length>0
     ?(selYear&&selMonth
         ?`${selCat} — ogni giorno di ${MONTHS_IT[selMonth-1]} ${selYear}`
         :selYear
@@ -965,21 +976,21 @@ function CategorieTab({txs,excInvest,selYear,selMonth,onRuleAdded}){
   return(
     <>
     <div style={{display:"flex",flexDirection:"column",gap:16}}>
-      {selCat&&(
+      {selCats.length>0&&(
         <div style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:8,padding:"8px 14px",display:"flex",alignItems:"center",gap:10,fontSize:12}}>
-          <span style={{color:"#3b82f6",fontWeight:700}}>🏷 {selCat}</span>
+          <span style={{color:"#3b82f6",fontWeight:700}}>🏷 {selCats.length===1?selCats[0]:`${selCats.length} categorie`}</span>
           <span style={{color:C.muted}}>selezionata — clicca di nuovo per deselezionare</span>
-          <button onClick={()=>setSelCat(null)} style={{marginLeft:"auto",background:"#dbeafe",color:"#3b82f6",border:"none",borderRadius:5,padding:"3px 10px",cursor:"pointer",fontSize:11,fontWeight:600}}>✕ Deseleziona</button>
+          <button onClick={()=>setSelCats([])} style={{marginLeft:"auto",background:"#dbeafe",color:"#3b82f6",border:"none",borderRadius:5,padding:"3px 10px",cursor:"pointer",fontSize:11,fontWeight:600}}>✕ Deseleziona</button>
         </div>
       )}
 
       {/* 3 colonne: Barre | Ciambella | Fornitori */}
       <div className="cat-grid" style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr) minmax(280px,380px)",gap:8,alignItems:"start"}}>
         {/* BARRE — sinistra */}
-        <Box title="Totale per categoria — clicca per selezionare">
+        <Box title="Totale per categoria — clicca (CTRL+click = multiplo)">
           <ResponsiveContainer width="100%" height={Math.max(400,catData.length*32)}>
             <BarChart data={[...catData].reverse()} layout="vertical" margin={{right:65}}
-              onClick={d=>{if(d?.activePayload?.[0])setSelCat(s=>s===d.activePayload[0].payload.name?null:d.activePayload[0].payload.name);}}>
+              onClick={d=>{if(d?.activePayload?.[0]){const n=d.activePayload[0].payload.name;toggleCat(n,d.nativeEvent?.ctrlKey||d.nativeEvent?.metaKey);}}}>
               <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
               <XAxis type="number" tickFormatter={fmtK} tick={{fill:C.muted,fontSize:13}} tickLine={false}/>
               <YAxis type="category" dataKey="name" width={130} tick={{fill:C.text,fontSize:12,fontWeight:600}}/>
@@ -988,7 +999,7 @@ function CategorieTab({txs,excInvest,selYear,selMonth,onRuleAdded}){
                 label={{position:"right",formatter:v=>fmtK(v),fontSize:12,fill:C.muted,fontWeight:700}}>
                 {[...catData].reverse().map((_,i)=>{
                   const name=[...catData].reverse()[i].name;
-                  return<Cell key={i} fill={PASTEL[(catData.length-1-i)%PASTEL.length]} opacity={selCat&&name!==selCat?0.3:1}/>;
+                  return<Cell key={i} fill={PASTEL[(catData.length-1-i)%PASTEL.length]} opacity={selCats.length>0&&!selCats.includes(name)?0.3:1}/>;
                 })}
               </Bar>
             </BarChart>
@@ -996,9 +1007,9 @@ function CategorieTab({txs,excInvest,selYear,selMonth,onRuleAdded}){
         </Box>
 
         {/* DONUT — centro */}
-        <Box title="Distribuzione — clicca per selezionare">
+        <Box title="Distribuzione — clicca (CTRL+click = multiplo)">
           <ResponsiveContainer width="100%" height={Math.max(400,catData.length*32)}>
-            <PieChart onClick={d=>{if(d?.activePayload?.[0])setSelCat(s=>s===d.activePayload[0].name?null:d.activePayload[0].name);}}>
+            <PieChart onClick={d=>{if(d?.activePayload?.[0]){const n=d.activePayload[0].name;toggleCat(n,d.nativeEvent?.ctrlKey||d.nativeEvent?.metaKey);}}}>
               <Pie data={catData} dataKey="value" nameKey="name"
                 cx="50%" cy="50%" innerRadius="28%" outerRadius="58%"
                 paddingAngle={2} style={{cursor:"pointer"}}
@@ -1016,7 +1027,7 @@ function CategorieTab({txs,excInvest,selYear,selMonth,onRuleAdded}){
                   );
                 }}
                 labelLine={{stroke:C.faint,strokeWidth:1}}>
-                {catData.map((_,i)=><Cell key={i} fill={PASTEL[i%PASTEL.length]} opacity={selCat&&catData[i].name!==selCat?0.3:1}/>)}
+                {catData.map((_,i)=><Cell key={i} fill={PASTEL[i%PASTEL.length]} opacity={selCats.length>0&&!selCats.includes(catData[i].name)?0.3:1}/>)}
               </Pie>
               <Tooltip formatter={v=>fmt(v)} contentStyle={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,fontSize:12}}/>
             </PieChart>
@@ -1024,8 +1035,8 @@ function CategorieTab({txs,excInvest,selYear,selMonth,onRuleAdded}){
         </Box>
 
         {/* FORNITORI categoria selezionata — destra */}
-        <Box title={selCat?`Fornitori: ${selCat}`:"Fornitori"}>
-          {!selCat?(
+        <Box title={selCats.length>0?`Fornitori: ${selCats.length===1?selCats[0]:selCats.length+' categorie'}`:"Fornitori"}>
+          {selCats.length===0?(
             <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:200,color:C.faint,gap:10}}>
               <div style={{fontSize:28}}>👈</div>
               <div style={{fontSize:12,textAlign:"center"}}>Seleziona una categoria</div>
@@ -1033,7 +1044,7 @@ function CategorieTab({txs,excInvest,selYear,selMonth,onRuleAdded}){
           ):(()=>{
             // Aggrega vendor per categoria selezionata
             const vendors={};
-            txs.filter(t=>t.uscita>0&&t.categoria===selCat).forEach(t=>{
+            txs.filter(t=>t.uscita>0&&selCats.includes(t.categoria)).forEach(t=>{
               const v=t.vendor||"N/D";
               vendors[v]=(vendors[v]||0)+t.uscita;
             });
@@ -1059,12 +1070,12 @@ function CategorieTab({txs,excInvest,selYear,selMonth,onRuleAdded}){
 
       {/* Grafico temporale — sempre visibile */}
       <Box title={selCat?`📈 Andamento: ${trendTitle}`:"📈 Andamento categoria"}>
-        {!selCat?(
+        {selCats.length===0?(
           <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:200,flexDirection:"column",gap:12,color:C.faint}}>
             <div style={{fontSize:36}}>👆</div>
             <div style={{fontSize:13}}>Seleziona una categoria cliccando sul grafico</div>
           </div>
-        ):excInvest&&NEUTRAL_CATS.includes(selCat)?(
+        ):excInvest&&selCats.length>0&&selCats.every(c=>NEUTRAL_CATS.includes(c))?(
           <div style={{textAlign:"center",padding:"30px",color:C.faint,fontSize:13}}>
             Categoria esclusa dai totali — rimuovi il filtro "Escludi dai totali" per vederla
           </div>
@@ -1099,7 +1110,7 @@ function CategorieTab({txs,excInvest,selYear,selMonth,onRuleAdded}){
       </Box>
 
       {/* Tabella record */}
-      {selCat&&!( excInvest&&NEUTRAL_CATS.includes(selCat))&&tableRows.length>0&&(
+      {selCat&&!( excInvest&&selCats.length>0&&selCats.every(c=>NEUTRAL_CATS.includes(c)))&&tableRows.length>0&&(
         <Box title={`📋 Transazioni: ${selCat} (${tableRows.length} record)`}>
           <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"center",flexWrap:"wrap"}}>
             <span style={{fontSize:11,color:C.muted,fontWeight:600}}>Ordina per:</span>
@@ -1124,7 +1135,7 @@ function CategorieTab({txs,excInvest,selYear,selMonth,onRuleAdded}){
                     <td style={{padding:"5px 6px",overflow:"hidden",whiteSpace:"nowrap"}}>
                       <div style={{display:"flex",alignItems:"center",gap:4}}>
                         <span style={{background:"#eff6ff",color:"#3b82f6",borderRadius:4,padding:"2px 6px",fontSize:11,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:110,display:"inline-block"}} title={t.categoria}>{t.categoria}</span>
-                        <button onClick={()=>setInlineEdit({pattern:t.vendor||"",name:t.vendor||"",categoria:t.categoria})}
+                        <button onClick={()=>setInlineEdit({pattern:t.vendor||"",name:t.vendor||"",categoria:t.categoria,date:t.date,_key:t.date+"|"+t.uscita+"|"+t.causale,_dateChanged:false})}
                           title="Modifica categoria"
                           style={{background:"transparent",border:"none",cursor:"pointer",fontSize:11,padding:"1px 3px",color:C.muted,flexShrink:0}}>✏️</button>
                       </div>
@@ -1152,6 +1163,13 @@ function CategorieTab({txs,excInvest,selYear,selMonth,onRuleAdded}){
           onClick={e=>e.stopPropagation()}>
           <div style={{fontSize:17,fontWeight:800,color:"#1e40af",marginBottom:18}}>✏️ Crea regola di categorizzazione</div>
           <div style={{display:"flex",flexDirection:"column",gap:14}}>
+            <div>
+              <div style={{fontSize:11,color:C.muted,fontWeight:700,marginBottom:5}}>📅 DATA OPERAZIONE (modifica per riposizionare nel tempo)</div>
+              <input type="date" value={inlineEdit.date||""}
+                onChange={e=>setInlineEdit({...inlineEdit,date:e.target.value,_dateChanged:true})}
+                style={{width:"100%",padding:"9px 12px",border:`1px solid ${inlineEdit._dateChanged?"#f59e0b":"#93c5fd"}`,borderRadius:7,fontSize:14,boxSizing:"border-box"}}/>
+              {inlineEdit._dateChanged&&<div style={{fontSize:11,color:"#f59e0b",marginTop:4}}>⚠️ La data verrà modificata — la transazione si sposterà nel periodo corrispondente</div>}
+            </div>
             <div>
               <div style={{fontSize:11,color:C.muted,fontWeight:700,marginBottom:5}}>PATTERN — parola chiave da cercare nel nome fornitore</div>
               <input autoFocus value={inlineEdit.pattern}
@@ -1768,8 +1786,8 @@ function App(){
   const [msg,setMsg]=useState("");
   const [tab,setTab]=useState("panoramica");
   const [excInvest,setExcInvest]=useState(false);
-  const [selYear,setSelYear]=useState(null);
-  const [selMonth,setSelMonth]=useState(null);
+  const [selYears,setSelYears]=useState([]); // [] = tutti gli anni
+  const [selMonths,setSelMonths]=useState([]); // [] = tutti i mesi
   const [setup,setSetup]=useState(false);
   const [ready,setReady]=useState(false);
   const [rulesRev,setRulesRev]=useState(0);
@@ -1879,11 +1897,32 @@ function App(){
   }
 
   const years=useMemo(()=>[...new Set(txs.map(t=>t.year))].sort(),[txs]);
-  const filteredTxs=useMemo(()=>filterTxs(txs,selYear,selMonth),[txs,selYear,selMonth]);
+
+  function toggleYear(y,ctrlKey){
+    if(!ctrlKey){setSelYears(y?[y]:[]);setSelMonths([]);}
+    else{
+      setSelYears(prev=>prev.includes(y)?prev.filter(x=>x!==y):[...prev,y].sort());
+    }
+  }
+  function toggleMonth(m,ctrlKey){
+    if(!ctrlKey){setSelMonths(m?[m]:[]);}
+    else{
+      setSelMonths(prev=>prev.includes(m)?prev.filter(x=>x!==m):[...prev,m].sort());
+    }
+  }
+  const filteredTxs=useMemo(()=>{
+    let r=txs;
+    if(selYears.length>0)r=r.filter(t=>selYears.includes(t.year));
+    if(selMonths.length>0)r=r.filter(t=>selMonths.includes(t.month));
+    return r;
+  },[txs,selYears,selMonths]);
   const agg=useMemo(()=>aggregate(filteredTxs,excInvest),[filteredTxs,excInvest]);
   const pnl=useMemo(()=>investPnL(filteredTxs),[filteredTxs]);
 
-  const periodLabel=selYear?(selMonth?`${MONTHS_IT[selMonth-1]} ${selYear}`:String(selYear)):"Tutti gli anni";
+  const periodLabel=selYears.length===0?"Tutti gli anni":
+    selYears.length===1?(selMonths.length===1?`${MONTHS_IT[selMonths[0]-1]} ${selYears[0]}`:
+    selMonths.length>1?`${selYears[0]} (${selMonths.length} mesi)`:String(selYears[0])):
+    `${selYears.length} anni selezionati`;
 
   if(!ready)return<div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",color:C.muted}}>Avvio...</div>;
   if(setup)return<Setup onSave={handleSaveUrl}/>;
@@ -1895,7 +1934,7 @@ function App(){
     <div style={{display:"flex",height:"100vh",overflow:"hidden",background:C.bg}}>
       {/* LEFT SIDEBAR - desktop */}
       <div className="sidebar-desktop" style={{flexShrink:0}}>
-        <Sidebar years={years} selYear={selYear} setSelYear={setSelYear} selMonth={selMonth} setSelMonth={setSelMonth}/>
+        <Sidebar years={years} selYears={selYears} selMonths={selMonths} toggleYear={toggleYear} toggleMonth={toggleMonth}/>
       </div>
 
       {/* MAIN AREA */}
@@ -1950,20 +1989,20 @@ function App(){
         <div className="sidebar-mobile" style={{background:C.sidebar,borderBottom:`1px solid ${C.border}`,padding:"8px 12px",gap:6,overflowX:"auto",flexShrink:0,alignItems:"center"}}>
           <span style={{fontSize:10,color:C.faint,fontWeight:700,whiteSpace:"nowrap"}}>ANNO:</span>
           {[null,...years].map(y=>(
-            <button key={y||"all"} onClick={()=>{setSelYear(y);setSelMonth(null);}} style={{
-              background:selYear===y&&y!==null?"#60a5fa":!y&&!selYear?"#60a5fa":"transparent",
-              color:((selYear===y&&y!==null)||(!y&&!selYear))?"#fff":C.muted,
-              border:`1px solid ${((selYear===y&&y!==null)||(!y&&!selYear))?"#60a5fa":C.border}`,
+            <button key={y||"all"} onClick={e=>{if(!y){toggleYear(null,false);}else{toggleYear(y,e.ctrlKey||e.metaKey);}}} style={{
+              background:(y&&selYears.includes(y))||(!y&&selYears.length===0)?"#60a5fa":"transparent",
+              color:((y&&selYears.includes(y))||(!y&&selYears.length===0))?"#fff":C.muted,
+              border:`1px solid ${((y&&selYears.includes(y))||(!y&&selYears.length===0))?"#60a5fa":C.border}`,
               borderRadius:5,padding:"4px 10px",fontSize:11,cursor:"pointer",whiteSpace:"nowrap"
             }}>{y||"Tutti"}</button>
           ))}
           {selYear&&<>
             <span style={{fontSize:10,color:C.faint,fontWeight:700,whiteSpace:"nowrap",marginLeft:4}}>MESE:</span>
             {MONTHS_IT.map((m,i)=>(
-              <button key={i} onClick={()=>setSelMonth(selMonth===i+1?null:i+1)} style={{
-                background:selMonth===i+1?"#60a5fa":"transparent",
-                color:selMonth===i+1?"#fff":C.muted,
-                border:`1px solid ${selMonth===i+1?"#60a5fa":C.border}`,
+              <button key={i} onClick={e=>toggleMonth(i+1,e.ctrlKey||e.metaKey)} style={{
+                background:selMonths.includes(i+1)?"#60a5fa":"transparent",
+                color:selMonths.includes(i+1)?"#fff":C.muted,
+                border:`1px solid ${selMonths.includes(i+1)?"#60a5fa":C.border}`,
                 borderRadius:5,padding:"4px 8px",fontSize:11,cursor:"pointer",whiteSpace:"nowrap"
               }}>{m}</button>
             ))}
