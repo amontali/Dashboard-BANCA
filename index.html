@@ -1787,6 +1787,8 @@ function App(){
   const [tab,setTab]=useState("panoramica");
   const [excInvest,setExcInvest]=useState(false);
   const [selYears,setSelYears]=useState([]); // [] = tutti gli anni
+  const selYear=selYears.length===1?selYears[0]:null;
+  const selMonth=selMonths.length===1?selMonths[0]:null;
   const [selMonths,setSelMonths]=useState([]); // [] = tutti i mesi
   const [setup,setSetup]=useState(false);
   const [ready,setReady]=useState(false);
