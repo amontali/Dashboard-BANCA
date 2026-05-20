@@ -1962,6 +1962,7 @@ function App(){
   // Analizza file CSV selezionati e ritorna le righe parsate
   async function parseFiles(files){
     let rows=[];
+    const balanceMap={};
     for(const f of files){const txt=await f.text();rows.push(...parseCSV(txt,balanceMap));}
     return {rows, balanceMap};
   }
