@@ -341,7 +341,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v8.6 · 20 mag 2025";
+const VERSION="v8.6.1 · 20 mag 2025";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",maximumFractionDigits:0}).format(n||0);
@@ -568,20 +568,29 @@ async function gsRead(url){
   }).filter(r=>r.date&&r.year>2000);
 }
 async function gsWrite(url,rows,onProgress){
-  const CHUNK=10,PARALLEL=10,chunks=[]; // 10 righe x 10 paralleli = ~35s per 4000 tx
+  // POST unica con tutti i dati — evita rate limiting di Apps Script
+  const CHUNK=300; // max ~300 righe per request (limite URL sicuro con POST)
+  const chunks=[];
   for(let i=0;i<rows.length;i+=CHUNK)chunks.push(rows.slice(i,i+CHUNK));
   const total=chunks.length;
-  let done=0;
-  for(let i=0;i<chunks.length;i+=PARALLEL){
-    const batch=chunks.slice(i,i+PARALLEL);
-    await Promise.all(batch.map(chunk=>{
-      const enc=encodeURIComponent(JSON.stringify(chunk));
-      return fetch(`${url}?action=write&data=${enc}`,{redirect:"follow"}).catch(()=>{});
-    }));
-    done+=batch.length;
-    if(onProgress)onProgress(done,total,Math.round(rows.length*done/total));
+  for(let i=0;i<chunks.length;i++){
+    const chunk=chunks[i];
+    const body=JSON.stringify(chunk);
+    try{
+      await fetch(`${url}?action=write`,{
+        method:"POST",
+        body,
+        redirect:"follow",
+        headers:{"Content-Type":"text/plain"} // Apps Script accetta text/plain
+      });
+    }catch(e){
+      // Fallback GET per compatibilità vecchio script
+      const enc=encodeURIComponent(body);
+      await fetch(`${url}?action=write&data=${enc}`,{redirect:"follow"}).catch(()=>{});
+    }
+    if(onProgress)onProgress(i+1,total,Math.round(rows.length*(i+1)/total));
+    await new Promise(r=>setTimeout(r,300)); // pausa tra chunk per evitare rate limit
   }
-  await new Promise(r=>setTimeout(r,1500));
 }
 async function gsClear(url){
   try{
@@ -632,13 +641,16 @@ function aggregateVendors(txs,catFilter){
 }
 
 // ── APPS SCRIPT CODE ──────────────────────────────────────────────────────────
-const SCRIPT_CODE=`function doGet(e) {
+const SCRIPT_CODE=`// ContoChiaro Apps Script v2 — GET + POST
+function doGet(e) { return handleRequest(e, null); }
+function doPost(e) { return handleRequest(e, e.postData ? e.postData.contents : null); }
+
+function handleRequest(e, postBody) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName('Transazioni');
   if (!sheet) {
     sheet = ss.insertSheet('Transazioni');
-    sheet.appendRow(['date','ym','year','month','uscita',
-                     'entrata','causale','descrizione','categoria']);
+    sheet.appendRow(['date','ym','year','month','uscita','entrata','causale','descrizione','categoria']);
     return ok({rows:[]});
   }
   const action = e.parameter.action || 'read';
@@ -648,18 +660,13 @@ const SCRIPT_CODE=`function doGet(e) {
     const headers = data[0];
     const rows = data.slice(1).map(r => {
       const o={};
-      headers.forEach((h,i)=>{
-        let v=r[i];
-        // Converte oggetti Date in stringa ISO per evitare problemi di formato
-        if(v instanceof Date) v=Utilities.formatDate(v,'UTC','yyyy-MM-dd');
-        o[h]=v;
-      });
+      headers.forEach((h,i)=>{ let v=r[i]; if(v instanceof Date) v=Utilities.formatDate(v,'UTC','yyyy-MM-dd'); o[h]=v; });
       return o;
     });
     return ok({rows});
   }
   if (action === 'write') {
-    const rows = JSON.parse(decodeURIComponent(e.parameter.data));
+    const rows = postBody ? JSON.parse(postBody) : JSON.parse(decodeURIComponent(e.parameter.data));
     const values = rows.map(r=>[r.date,r.ym,r.year,r.month,r.uscita,r.entrata,r.causale,r.descrizione,r.categoria]);
     const startRow = sheet.getLastRow() + 1;
     sheet.getRange(startRow,1,values.length,9).setValues(values);
@@ -671,7 +678,7 @@ const SCRIPT_CODE=`function doGet(e) {
     return ok({cleared: true});
   }
   if (action === 'saveSettings') {
-    const settings = JSON.parse(decodeURIComponent(e.parameter.data));
+    const settings = JSON.parse(postBody || decodeURIComponent(e.parameter.data));
     let sSheet = ss.getSheetByName('Impostazioni');
     if (!sSheet) sSheet = ss.insertSheet('Impostazioni');
     sSheet.clearContents();
@@ -686,11 +693,7 @@ const SCRIPT_CODE=`function doGet(e) {
     const cats = sSheet.getRange('A1').getValue();
     const rules = sSheet.getRange('A2').getValue();
     const aliases = sSheet.getRange('A3').getValue();
-    return ok({settings: {
-      cats: cats ? JSON.parse(cats) : [],
-      rules: rules ? JSON.parse(rules) : [],
-      aliases: aliases ? JSON.parse(aliases) : {}
-    }});
+    return ok({settings: { cats: cats?JSON.parse(cats):[], rules: rules?JSON.parse(rules):[], aliases: aliases?JSON.parse(aliases):{} }});
   }
   return ok({error:'unknown'});
 }
