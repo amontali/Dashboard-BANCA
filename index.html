@@ -373,7 +373,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v9.2.1 · 21 mag 2026";
+const VERSION="v9.2.3 · 21 mag 2026";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",minimumFractionDigits:0,maximumFractionDigits:0,useGrouping:true}).format(n||0);
@@ -649,56 +649,27 @@ async function gsRead(url){
   }).filter(r=>r.date&&r.year>2000);
 }
 async function gsWrite(url,rows,onProgress){
+  // POST no-cors — bypassa CORS, chunk da 30 righe
   const CHUNK=30;
   const chunks=[];
   for(let i=0;i<rows.length;i+=CHUNK)chunks.push(rows.slice(i,i+CHUNK));
   const total=chunks.length;
-  let done=0;
-
-  // POST parallelo con concorrenza massima 3
-  async function sendChunk(chunk){
+  for(let i=0;i<chunks.length;i++){
     for(let attempt=0;attempt<3;attempt++){
       try{
         await fetch(`${url}?action=write`,{
           method:"POST",mode:"no-cors",
-          body:JSON.stringify(chunk),
+          body:JSON.stringify(chunks[i]),
           headers:{"Content-Type":"text/plain"}
         });
-        return true;
+        break;
       }catch(e){
-        await new Promise(r=>setTimeout(r,500*attempt));
+        await new Promise(r=>setTimeout(r,400));
       }
     }
-    return false;
+    if(onProgress)onProgress(i+1,total,Math.round(rows.length*(i+1)/total));
+    await new Promise(r=>setTimeout(r,350));
   }
-
-  // Processa con concorrenza max 3
-  const CONCURRENCY=3;
-  for(let i=0;i<chunks.length;i+=CONCURRENCY){
-    const batch=chunks.slice(i,i+CONCURRENCY);
-    await Promise.all(batch.map(sendChunk));
-    done+=batch.length;
-    if(onProgress)onProgress(done,total,Math.round(rows.length*done/total));
-    await new Promise(r=>setTimeout(r,400));
-  }
-
-  // Verifica finale — attendi scrittura Sheets poi conta
-  await new Promise(r=>setTimeout(r,3000));
-  try{
-    const res=await fetch(`${url}?action=count`,{redirect:"follow"});
-    const d=await res.json();
-    const count=d.count||0;
-    console.log(`Sheets: ${count}/${rows.length}`);
-    if(rows.length-count>10){
-      console.warn(`Mancano ${rows.length-count} righe — retry GET`);
-      for(let j=count;j<rows.length;j+=8){
-        const mini=rows.slice(j,j+8);
-        const enc=encodeURIComponent(JSON.stringify(mini));
-        await fetch(`${url}?action=write&data=${enc}`,{redirect:"follow"}).catch(()=>{});
-        await new Promise(r=>setTimeout(r,300));
-      }
-    }
-  }catch(e){console.warn("Verifica fallita:",e);}
 }
 async function gsClear(url){
   try{
@@ -2907,6 +2878,7 @@ function App(){
     try{
       await gsWrite(url,sorted,(done,tot)=>setMsg(`☁️ Sheets: ${done}/${tot} blocchi (${Math.round(done/tot*100)}%) — non chiudere la pagina`));
       setMsg(`✅ Reimport completo · ${sorted.length} transazioni · Sheets aggiornato.`);
+    setTimeout(()=>setMsg(""),8000);
     }catch{setMsg(`✅ ${sorted.length} transazioni importate (solo locale — Sheets non aggiornato).`);}
     setSyncing(false);setTimeout(()=>setMsg(""),6000);try{document.getElementById("inp-full").value="";}catch{}
   }
