@@ -357,7 +357,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v8.8.2 · 21 mag 2026";
+const VERSION="v8.9 · 21 mag 2026";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",minimumFractionDigits:0,maximumFractionDigits:0,useGrouping:true}).format(n||0);
@@ -558,7 +558,10 @@ function extractMetodo(causale, desc){
   if(/ADDEBITO\s+SDD|ADDEBITO\s+DIRETTO|DOMICILIAZIONE/.test(c))return"SDD/Domicil.";
   if(/GIROCONTO|GIRO\s+CONTO|CONTO\s+DEPOSITO/.test(c))return"Giroconto";
   if(/PRELIEVO\s+CONTANTE|PRELIEVO\s+ATM|BANCOMAT(?!\s+POS)/.test(c))return"Contanti";
-  if(/PAGAMENTO\s+POS|PAGOBANCOMAT|MASTERCARD|VISA|C-LESS|CONTACTLESS|OPERAZIONE\s+VPAY/.test(c))return"Carta";
+  if(/PAGOBANCOMAT|OPERAZIONE\s+VPAY|VPAY|MAESTRO/.test(c))return"Bancomat";
+  if(/MASTERCARD|VISA(?!\s+DEBIT)|C-LESS|CONTACTLESS/.test(c))return"Bancomat"; // default C-less = bancomat
+  if(/CARTA\s+DI\s+CREDITO|ADDEBITO\s+CARTA\s+DI\s+CREDITO/.test(c))return"Carta di Credito";
+  if(/PAGAMENTO\s+POS/.test(c))return"Bancomat";
   if(/BONIFICO|SEPA|VIREMENT|A\s+FAVORE\s+DI/.test(c))return"Bonifico";
   if(/IMPOSTA\s+DI\s+BOLLO|CANONE|COMMISSIONE|INTERESSI|SPESE\s+TENUTA/.test(c))return"Spesa Bancaria";
   if(/STIPENDIO|EMOLUMENTI|ACCREDITO\s+STIPENDIO/.test(c))return"Accredito";
@@ -681,13 +684,16 @@ function aggregate(txs,excInvest){
   const data=excInvest?txs.filter(t=>!NEUTRAL_CATS.includes(t.categoria)):txs;
   const byYm={},byYear={},byCat={};
   for(const t of data){
-    if(!byYm[t.ym])byYm[t.ym]={ym:t.ym,year:t.year,month:t.month,entrate:0,uscite:0};
-    byYm[t.ym].entrate+=t.entrata;byYm[t.ym].uscite+=t.uscita;
+    const ymKey=t.ym||`${t.year}-${String(t.month).padStart(2,"0")}`;
+    if(!byYm[ymKey])byYm[ymKey]={ym:ymKey,year:t.year,month:t.month,entrate:0,uscite:0};
+    byYm[ymKey].entrate+=t.entrata;byYm[ymKey].uscite+=t.uscita;
     if(!byYear[t.year])byYear[t.year]={year:t.year,entrate:0,uscite:0};
     byYear[t.year].entrate+=t.entrata;byYear[t.year].uscite+=t.uscita;
     if(t.uscita>0)byCat[t.categoria]=(byCat[t.categoria]||0)+t.uscita;
   }
-  const monthly=Object.values(byYm).sort((a,b)=>a.ym.localeCompare(b.ym))
+  // Deduplica e ordina per ym (YYYY-MM) — elimina eventuali duplicati
+  const monthly=[...new Map(Object.entries(byYm)).values()]
+    .sort((a,b)=>a.ym.localeCompare(b.ym))
     .map(m=>({...m,saldo:m.entrate-m.uscite,label:`${String(m.month).padStart(2,"0")}/${String(m.year).slice(2)}`}));
   const yearly=Object.values(byYear).sort((a,b)=>a.year-b.year).map(y=>({...y,saldo:y.entrate-y.uscite}));
   const catOut=Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([name,value])=>({name,value:Math.round(value)}));
@@ -843,14 +849,14 @@ function Sidebar({years,selYears,selMonths,toggleYear,toggleMonth}){
       <div style={{fontSize:8,color:C.faint,fontWeight:700,textAlign:"center",textTransform:"uppercase",letterSpacing:1,padding:"8px 0 6px"}}>ANNO</div>
       <SBtn label="Tutti" active={selYears.length===0} onClick={()=>{toggleYear(null,false);}}/>
       {years.map(y=>(
-        <SBtn key={y} label={y} active={selYears.includes(y)} onClick={e=>{toggleYear(y,e.ctrlKey||e.metaKey);}}/>
+        <SBtn key={y} label={y} active={selYears.includes(y)} onClick={e=>{toggleYear(y,e.ctrlKey||e.metaKey,e.shiftKey);}}/>
       ))}
       {selYears.length>0&&(
         <>
           <div style={{height:1,background:C.border,margin:"8px 4px"}}/>
           <div style={{fontSize:8,color:C.faint,fontWeight:700,textAlign:"center",textTransform:"uppercase",letterSpacing:1,padding:"4px 0 6px"}}>MESE</div>
           {MONTHS_IT.map((m,i)=>(
-            <SBtn key={i} label={m} active={selMonths.includes(i+1)} onClick={e=>{toggleMonth(i+1,e.ctrlKey||e.metaKey);}}/>
+            <SBtn key={i} label={m} active={selMonths.includes(i+1)} onClick={e=>{toggleMonth(i+1,e.ctrlKey||e.metaKey,e.shiftKey);}}/>
           ))}
         </>
       )}
@@ -891,8 +897,8 @@ function PanoramicaTab({allTxs,filteredTxs,selYears,selYear,selMonth,excInvest,b
                   <YAxis yAxisId="right" orientation="right" tickFormatter={fmtK} tick={{fill:C.muted,fontSize:10}} width={55}/>
                   <Tooltip content={<Tip/>}/>
                   <Legend wrapperStyle={{fontSize:12}}/>
-                  <Bar yAxisId="left" dataKey="entrate" name="Entrate" fill="#6ee7b7" radius={[3,3,0,0]}/>
-                  <Bar yAxisId="left" dataKey="uscite" name="Uscite" fill="#fca5a5" radius={[3,3,0,0]}/>
+                  <Bar yAxisId="left" dataKey="entrate" name="Entrate" fill="#6ee7b7" stroke="rgba(0,0,0,0.12)" strokeWidth={1} radius={[3,3,0,0]}/>
+                  <Bar yAxisId="left" dataKey="uscite" name="Uscite" fill="#fca5a5" stroke="rgba(0,0,0,0.12)" strokeWidth={1} radius={[3,3,0,0]}/>
                   <Line yAxisId="right" type="monotone" dataKey="saldoCumulativo" name="Saldo" stroke="#60a5fa" strokeWidth={2.5} dot={false} activeDot={{r:5}}/>
                 </ComposedChart>
               </ResponsiveContainer>
@@ -1128,7 +1134,7 @@ function SunburstChart({txs, excInvest, selCats, toggleCat}) {
 }
 
 
-function CategorieTab({txs,excInvest,selYear,selMonth,onRuleAdded}){
+function CategorieTab({txs,excInvest,selYear,selMonth,selYears,selMonths,onRuleAdded}){
   const [selCats,setSelCats]=useState([]); // [] = nessuna selezione
   useEffect(()=>{
     const handler=e=>{if(e.key==="Escape"){setSelCats([]);setInlineEdit(null);}};
@@ -1184,9 +1190,10 @@ function CategorieTab({txs,excInvest,selYear,selMonth,onRuleAdded}){
 
   // ── Tabella record ──────────────────────────────────────────────────────────
   const tableRows=useMemo(()=>{
-    if(selCats.length===0)return[];
-    if(excInvest&&selCats.every(c=>NEUTRAL_CATS.includes(c)))return[];
-    const rows=txs.filter(t=>t.uscita>0&&selCats.includes(t.categoria));
+    // Mostra tutte le transazioni se nessuna categoria selezionata
+    const rows=selCats.length===0
+      ?txs.filter(t=>t.uscita>0&&(!excInvest||!NEUTRAL_CATS.includes(t.categoria)))
+      :txs.filter(t=>t.uscita>0&&selCats.includes(t.categoria));
     return sortBy==="date"
       ?[...rows].sort((a,b)=>b.date.localeCompare(a.date))
       :[...rows].sort((a,b)=>b.uscita-a.uscita);
@@ -1342,8 +1349,8 @@ function CategorieTab({txs,excInvest,selYear,selMonth,onRuleAdded}){
       </Box>
 
       {/* Tabella record */}
-      {selCats.length>0&&!( excInvest&&selCats.every(c=>NEUTRAL_CATS.includes(c)))&&tableRows.length>0&&(
-        <Box title={`📋 Transazioni: ${selCats.length===1?selCats[0]:selCats.length+" categorie"} (${tableRows.length} record)`}>
+      {tableRows.length>0&&(
+        <Box title={`📋 Transazioni${selCats.length>0?": "+(selCats.length===1?selCats[0]:selCats.length+" categorie"):" — tutte"} (${tableRows.length} record)`}>
           <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"center",flexWrap:"wrap"}}>
             <span style={{fontSize:11,color:C.muted,fontWeight:600}}>Ordina per:</span>
             <button onClick={()=>setSortBy("date")} style={{background:sortBy==="date"?"#60a5fa":"transparent",color:sortBy==="date"?"#fff":C.muted,border:`1px solid ${sortBy==="date"?"#60a5fa":C.border}`,borderRadius:5,padding:"3px 10px",cursor:"pointer",fontSize:11}}>Data ↓</button>
@@ -1451,7 +1458,7 @@ function CategorieTab({txs,excInvest,selYear,selMonth,onRuleAdded}){
   );
 }
 
-function VenditoriTab({allTxs,filteredTxs,selYear,selMonth}){
+function VenditoriTab({allTxs,filteredTxs,selYear,selMonth,selYears,selMonths}){
   const [catFilter,setCatFilter]=useState("");
   const [selVendor,setSelVendor]=useState(null);
   useEffect(()=>{
@@ -1657,7 +1664,7 @@ function InvestimentiTab({txs, balanceSaldos}){
       <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
         <Card label="Acquistato"   value={fmt(pnl.totalOut)} sub="uscite per asset"   color="#fca5a5" icon="📉"/>
         <Card label="Rientrato"    value={fmt(pnl.totalIn)}  sub="entrate da vendite" color="#6ee7b7" icon="📈"/>
-        <Card label="P&L Realizz." value={fmt(Math.abs(pnlNet))} sub={pnlNet>=0?"plusvalenza":"minusvalenza"} color={pnlNet>=0?"#6ee7b7":"#fca5a5"} icon={pnlNet>=0?"✅":"⚠️"}/>
+        <Card label="P&L Realizz." value={(pnlNet>=0?"+":"-")+fmt(Math.abs(pnlNet))} sub={pnlNet>=0?"plusvalenza":"minusvalenza"} color={pnlNet>=0?"#bbf7d0":"#fecaca"} icon={pnlNet>=0?"✅":"⚠️"}/>
         <Card label="Operazioni"   value={pnl.count} sub="transazioni" color="#c4b5fd" icon="🔢"/>
       </div>
       <Box title="Acquisti vs Vendite per Anno">
@@ -1668,8 +1675,8 @@ function InvestimentiTab({txs, balanceSaldos}){
             <YAxis tickFormatter={fmtK} tick={{fill:C.muted,fontSize:10}}/>
             <Tooltip content={<Tip/>}/>
             <Legend wrapperStyle={{fontSize:12}}/>
-            <Bar dataKey="acquisti" name="Acquisti" fill="#fca5a5" radius={[3,3,0,0]}/>
-            <Bar dataKey="vendite"  name="Vendite"  fill="#6ee7b7" radius={[3,3,0,0]}/>
+            <Bar dataKey="acquisti" name="Acquisti" fill="#fca5a5" stroke="rgba(0,0,0,0.12)" strokeWidth={1} radius={[3,3,0,0]}/>
+            <Bar dataKey="vendite"  name="Vendite"  fill="#6ee7b7" stroke="rgba(0,0,0,0.12)" strokeWidth={1} radius={[3,3,0,0]}/>
           </BarChart>
         </ResponsiveContainer>
       </Box>
@@ -2085,7 +2092,7 @@ function Setup({onSave}){
 // ── MAIN ──────────────────────────────────────────────────────────────────────
 // ── METODI DI PAGAMENTO TAB ───────────────────────────────────────────────────
 const METODI_COLORS={
-  "Carta":"#93c5fd","Bonifico":"#6ee7b7","Domiciliazione SDD":"#fcd34d",
+  "Bancomat":"#93c5fd","Carta di Credito":"#c4b5fd","Bonifico":"#6ee7b7","Domiciliazione SDD":"#fcd34d",
   "MAV/RAV":"#fdba74","F24":"#f87171","Prelievo ATM":"#c4b5fd",
   "Giroconto":"#a5f3fc","Spese Bancarie":"#fca5a5","Stipendio":"#bbf7d0","Altro":"#cbd5e1"
 };
@@ -2207,8 +2214,8 @@ function EntrateTab({txs, allTxs, selYear, selMonth}){
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:13,tableLayout:"auto",minWidth:500}}>
               <thead>
                 <tr style={{borderBottom:`2px solid ${C.border}`,background:"#f8fafc"}}>
-                  {["Data","Fonte","Descrizione","Importo"].map(h=>(
-                    <th key={h} style={{textAlign:h==="Importo"?"right":"left",padding:"7px 8px",color:C.muted,fontSize:10,fontWeight:700,textTransform:"uppercase",whiteSpace:"nowrap"}}>{h}</th>
+                  {["Cat.","Data","Fonte","Descrizione","Importo"].map(h=>(
+                    <th key={h} style={{textAlign:h==="Importo"?"right":"left",padding:"7px 8px",color:C.muted,fontSize:10,fontWeight:700,textTransform:"uppercase",whiteSpace:"nowrap",overflow:"hidden"}}>{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -2217,10 +2224,13 @@ function EntrateTab({txs, allTxs, selYear, selMonth}){
                   <tr key={i} style={{borderBottom:`1px solid ${C.border}`}}
                     onMouseEnter={e=>e.currentTarget.style.background="#f8fafc"}
                     onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                    <td style={{padding:"5px 8px",color:C.muted,whiteSpace:"nowrap",fontSize:12}}>{t.date}</td>
-                    <td style={{padding:"5px 8px",color:C.text,fontWeight:600,fontSize:12,whiteSpace:"nowrap"}}>{t.vendor||"—"}</td>
-                    <td style={{padding:"5px 8px",color:C.faint,fontSize:11,maxWidth:300,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={t.descrizione}>{t.descrizione}</td>
-                    <td style={{padding:"5px 8px",color:"#10b981",fontWeight:700,whiteSpace:"nowrap",textAlign:"right",fontSize:12}}>{"+"+fmt(t.entrata)}</td>
+                    <td style={{padding:"5px 6px"}}>
+                      <span style={{background:"#f0fdf4",color:"#16a34a",borderRadius:4,padding:"2px 6px",fontSize:10,fontWeight:600,whiteSpace:"nowrap"}}>{t.categoria}</span>
+                    </td>
+                    <td style={{padding:"5px 6px",color:C.muted,whiteSpace:"nowrap",fontSize:12}}>{t.date}</td>
+                    <td style={{padding:"5px 6px",color:C.text,fontWeight:600,fontSize:12,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:140}}>{t.vendor||"—"}</td>
+                    <td style={{padding:"5px 6px",color:C.faint,fontSize:11,wordBreak:"break-word",minWidth:200}} title={t.descrizione}>{t.descrizione}</td>
+                    <td style={{padding:"5px 6px",color:"#10b981",fontWeight:700,whiteSpace:"nowrap",textAlign:"right",fontSize:12}}>{"+"+fmt(t.entrata)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -2492,17 +2502,26 @@ function App(){
 
   const years=useMemo(()=>[...new Set(txs.map(t=>t.year))].sort(),[txs]);
 
-  function toggleYear(y,ctrlKey){
-    if(!ctrlKey){setSelYears(y?[y]:[]);setSelMonths([]);}
-    else{
-      setSelYears(prev=>prev.includes(y)?prev.filter(x=>x!==y):[...prev,y].sort());
-    }
+  function toggleYear(y,ctrlKey,shiftKey){
+    if(!y){setSelYears([]);setSelMonths([]);return;}
+    if(shiftKey&&selYears.length>0){
+      // SHIFT: seleziona range da ultimo selezionato a y
+      const last=selYears[selYears.length-1];
+      const allYears=[...new Set(txs.map(t=>t.year))].sort();
+      const i1=allYears.indexOf(Math.min(last,y));
+      const i2=allYears.indexOf(Math.max(last,y));
+      setSelYears(allYears.slice(i1,i2+1));
+    } else if(!ctrlKey){setSelYears([y]);setSelMonths([]);}
+    else{setSelYears(prev=>prev.includes(y)?prev.filter(x=>x!==y):[...prev,y].sort());}
   }
-  function toggleMonth(m,ctrlKey){
-    if(!ctrlKey){setSelMonths(m?[m]:[]);}
-    else{
-      setSelMonths(prev=>prev.includes(m)?prev.filter(x=>x!==m):[...prev,m].sort());
-    }
+  function toggleMonth(m,ctrlKey,shiftKey){
+    if(shiftKey&&selMonths.length>0){
+      // SHIFT: seleziona range da ultimo selezionato a m
+      const last=selMonths[selMonths.length-1];
+      const range=Array.from({length:Math.abs(m-last)+1},(_,i)=>Math.min(m,last)+i);
+      setSelMonths(prev=>[...new Set([...prev,...range])].sort((a,b)=>a-b));
+    } else if(!ctrlKey){setSelMonths([m]);}
+    else{setSelMonths(prev=>prev.includes(m)?prev.filter(x=>x!==m):[...prev,m].sort());}
   }
   const filteredTxs=useMemo(()=>{
     let r=txs;
@@ -2583,7 +2602,7 @@ function App(){
         <div className="sidebar-mobile" style={{background:C.sidebar,borderBottom:`1px solid ${C.border}`,padding:"8px 12px",gap:6,overflowX:"auto",flexShrink:0,alignItems:"center"}}>
           <span style={{fontSize:10,color:C.faint,fontWeight:700,whiteSpace:"nowrap"}}>ANNO:</span>
           {[null,...years].map(y=>(
-            <button key={y||"all"} onClick={e=>{if(!y){toggleYear(null,false);}else{toggleYear(y,e.ctrlKey||e.metaKey);}}} style={{
+            <button key={y||"all"} onClick={e=>{if(!y){toggleYear(null,false,false);}else{toggleYear(y,e.ctrlKey||e.metaKey,e.shiftKey);}}} style={{
               background:(y&&selYears.includes(y))||(!y&&selYears.length===0)?"#60a5fa":"transparent",
               color:((y&&selYears.includes(y))||(!y&&selYears.length===0))?"#fff":C.muted,
               border:`1px solid ${((y&&selYears.includes(y))||(!y&&selYears.length===0))?"#60a5fa":C.border}`,
@@ -2593,7 +2612,7 @@ function App(){
           {selYears.length>0&&<>
             <span style={{fontSize:10,color:C.faint,fontWeight:700,whiteSpace:"nowrap",marginLeft:4}}>MESE:</span>
             {MONTHS_IT.map((m,i)=>(
-              <button key={i} onClick={e=>toggleMonth(i+1,e.ctrlKey||e.metaKey)} style={{
+              <button key={i} onClick={e=>toggleMonth(i+1,e.ctrlKey||e.metaKey,e.shiftKey)} style={{
                 background:selMonths.includes(i+1)?"#60a5fa":"transparent",
                 color:selMonths.includes(i+1)?"#fff":C.muted,
                 border:`1px solid ${selMonths.includes(i+1)?"#60a5fa":C.border}`,
@@ -2645,7 +2664,7 @@ function App(){
             </div>
 
             {/* TABS */}
-            <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap"}}>
+            <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap",alignItems:"center"}}>
               {TABS.map(([id,label])=>(
                 <button key={id} onClick={()=>setTab(id)} style={{
                   background:tab===id?"#60a5fa":"transparent",
@@ -2656,10 +2675,14 @@ function App(){
                 }}>{label}</button>
               ))}
             </div>
+            {/* Titolo sezione corrente */}
+            <div style={{fontSize:13,fontWeight:700,color:C.muted,marginBottom:10,paddingLeft:2,borderLeft:"3px solid #60a5fa",paddingLeft:8}}>
+              {TABS.find(([id])=>id===tab)?.[1]||""} — {periodLabel}
+            </div>
 
             {tab==="panoramica"&&<PanoramicaTab allTxs={txs} filteredTxs={filteredTxs} selYears={selYears} selYear={selYear} selMonth={selMonth} excInvest={excInvest} balanceSaldos={balanceSaldos}/>}
             {tab==="mensile"&&<MensileTab txs={filteredTxs} excInvest={excInvest}/>}
-            {tab==="categorie"&&<CategorieTab txs={filteredTxs} excInvest={excInvest} selYear={selYear} selMonth={selMonth} onRuleAdded={()=>{
+            {tab==="categorie"&&<CategorieTab txs={filteredTxs} excInvest={excInvest} selYear={selYear} selMonth={selMonth} selYears={selYears} selMonths={selMonths} onRuleAdded={()=>{
               const rules=rulesGet();
               const local=lsGet();
               if(local.length>0){
@@ -2673,7 +2696,7 @@ function App(){
               }
               if(url)settingsPush(url);
             }}/>}
-            {tab==="venditori"&&<VenditoriTab allTxs={txs} filteredTxs={filteredTxs} selYear={selYear} selMonth={selMonth}/>}
+            {tab==="venditori"&&<VenditoriTab allTxs={txs} filteredTxs={filteredTxs} selYear={selYear} selMonth={selMonth} selYears={selYears} selMonths={selMonths}/>}
             {tab==="entrate"&&<EntrateTab txs={filteredTxs} allTxs={txs} selYear={selYear} selMonth={selMonth}/>}
             {tab==="metodi"&&<MetodiTab txs={filteredTxs} selYear={selYear} selMonth={selMonth}/>}
             {tab==="investimenti"&&<InvestimentiTab txs={filteredTxs} balanceSaldos={balanceSaldos}/>}
