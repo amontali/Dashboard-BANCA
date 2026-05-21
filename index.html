@@ -262,6 +262,8 @@ const CHAIN_MAP=[
   [/autoscuola/i,null,"Altro"],
   [/banco.bpm/i,"Banco BPM","Spese Bancarie"],
   [/facebk|facebook/i,"Facebook/Meta","Software / AI"],
+  // Carta di Credito ING — addebito mensile aggregato
+  [/addebito\s+carta\s+credito|carta\s+credito\s+ing|estratto\s+conto\s+carta/i,"Carta Credito ING","Carta di Credito"],
   // Intermediari di Pagamento
   [/\bpaypal\b/i,"PayPal","Intermediari di Pagamento"],
   [/\bsumup\b/i,"SumUp","Intermediari di Pagamento"],
@@ -371,7 +373,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v9.1.4 · 21 mag 2026";
+const VERSION="v9.1.5 · 21 mag 2026";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",minimumFractionDigits:0,maximumFractionDigits:0,useGrouping:true}).format(n||0);
@@ -2523,9 +2525,8 @@ const GENERIC_VENDORS = [
 function needsReview(t){
   if(!t.uscita||t.uscita===0)return false;
   if(NEUTRAL_CATS.includes(t.categoria))return false;
-  if(t.categoria==="Prelievi ATM")return false; // già categorizzato correttamente
-  if(t.categoria==="Tasse")return false; // F24 — già chiaro
-  if(t.categoria==="Spese Bancarie")return false;
+  const SKIP_CATS=["Prelievi ATM","Tasse","Spese Bancarie","Carta di Credito","Intermediari di Pagamento","Rate / Dom.","Stipendio"];
+  if(SKIP_CATS.includes(t.categoria))return false;
   if(t.categoria==="Altro")return true;
   const v=(t.vendor||"").toLowerCase().trim();
   if(GENERIC_VENDORS.includes(v))return true;
