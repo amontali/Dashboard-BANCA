@@ -373,7 +373,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v9.1.7 · 21 mag 2026";
+const VERSION="v9.1.8 · 21 mag 2026";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",minimumFractionDigits:0,maximumFractionDigits:0,useGrouping:true}).format(n||0);
@@ -2528,7 +2528,7 @@ function needsReview(t){
   if(NEUTRAL_CATS.includes(t.categoria))return false;
   const SKIP_CATS=["Prelievi ATM","Tasse","Spese Bancarie","Carta di Credito","Intermediari di Pagamento","Rate / Dom.","Stipendio"];
   if(SKIP_CATS.includes(t.categoria))return false;
-  if(t.categoria==="Altro")return true;
+  if(t.categoria==="Altro"||t.categoria==="Bonifici")return true;
   const v=(t.vendor||"").toLowerCase().trim();
   if(GENERIC_VENDORS.includes(v))return true;
   if(v.length<=2)return true;
