@@ -357,7 +357,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v8.8.1 · 20 mag 2026";
+const VERSION="v8.8.2 · 21 mag 2026";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",minimumFractionDigits:0,maximumFractionDigits:0,useGrouping:true}).format(n||0);
@@ -845,7 +845,7 @@ function Sidebar({years,selYears,selMonths,toggleYear,toggleMonth}){
       {years.map(y=>(
         <SBtn key={y} label={y} active={selYears.includes(y)} onClick={e=>{toggleYear(y,e.ctrlKey||e.metaKey);}}/>
       ))}
-      {selYear&&(
+      {selYears.length>0&&(
         <>
           <div style={{height:1,background:C.border,margin:"8px 4px"}}/>
           <div style={{fontSize:8,color:C.faint,fontWeight:700,textAlign:"center",textTransform:"uppercase",letterSpacing:1,padding:"4px 0 6px"}}>MESE</div>
@@ -1634,7 +1634,7 @@ function VenditoriTab({allTxs,filteredTxs,selYear,selMonth}){
   );
 }
 
-function InvestimentiTab({txs}){
+function InvestimentiTab({txs, balanceSaldos}){
   const pnl=useMemo(()=>investPnL(txs),[txs]);
   const pnlNet=pnl.totalIn-pnl.totalOut;
   return(
@@ -2590,7 +2590,7 @@ function App(){
               borderRadius:5,padding:"4px 10px",fontSize:11,cursor:"pointer",whiteSpace:"nowrap"
             }}>{y||"Tutti"}</button>
           ))}
-          {selYear&&<>
+          {selYears.length>0&&<>
             <span style={{fontSize:10,color:C.faint,fontWeight:700,whiteSpace:"nowrap",marginLeft:4}}>MESE:</span>
             {MONTHS_IT.map((m,i)=>(
               <button key={i} onClick={e=>toggleMonth(i+1,e.ctrlKey||e.metaKey)} style={{
@@ -2676,7 +2676,7 @@ function App(){
             {tab==="venditori"&&<VenditoriTab allTxs={txs} filteredTxs={filteredTxs} selYear={selYear} selMonth={selMonth}/>}
             {tab==="entrate"&&<EntrateTab txs={filteredTxs} allTxs={txs} selYear={selYear} selMonth={selMonth}/>}
             {tab==="metodi"&&<MetodiTab txs={filteredTxs} selYear={selYear} selMonth={selMonth}/>}
-            {tab==="investimenti"&&<InvestimentiTab txs={filteredTxs}/>}
+            {tab==="investimenti"&&<InvestimentiTab txs={filteredTxs} balanceSaldos={balanceSaldos}/>}
             {tab==="regole"&&<RulesTab gsUrl={url} txs={txs} onRulesChange={()=>{
               const rules=rulesGet();
               const local=lsGet();
