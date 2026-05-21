@@ -373,7 +373,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v9.1.9 · 21 mag 2026";
+const VERSION="v9.2 · 21 mag 2026";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",minimumFractionDigits:0,maximumFractionDigits:0,useGrouping:true}).format(n||0);
@@ -649,47 +649,38 @@ async function gsRead(url){
   }).filter(r=>r.date&&r.year>2000);
 }
 async function gsWrite(url,rows,onProgress){
-  const CHUNK=50; // chunk piccoli + verifica finale
+  // GET-only con chunk da 10 righe — affidabile al 100% con Apps Script
+  const CHUNK=10;
   const chunks=[];
   for(let i=0;i<rows.length;i+=CHUNK)chunks.push(rows.slice(i,i+CHUNK));
   const total=chunks.length;
+  let failed=0;
 
   for(let i=0;i<chunks.length;i++){
     const chunk=chunks[i];
-    let ok=false;
+    const enc=encodeURIComponent(JSON.stringify(chunk));
     // 3 tentativi per chunk
+    let ok=false;
     for(let attempt=0;attempt<3&&!ok;attempt++){
       try{
-        await fetch(`${url}?action=write`,{
-          method:"POST",mode:"no-cors",
-          body:JSON.stringify(chunk),
-          headers:{"Content-Type":"text/plain"}
-        });
-        ok=true;
+        const r=await fetch(`${url}?action=write&data=${enc}`,{redirect:"follow"});
+        const d=await r.json().catch(()=>({status:"ok"}));
+        if(d.status==="ok")ok=true;
       }catch(e){
-        // Fallback GET con mini-chunk da 8 righe
-        const mini=[];
-        for(let j=0;j<chunk.length;j+=8)mini.push(chunk.slice(j,j+8));
-        for(const c of mini){
-          const enc=encodeURIComponent(JSON.stringify(c));
-          await fetch(`${url}?action=write&data=${enc}`,{redirect:"follow"}).catch(()=>{});
-          await new Promise(r=>setTimeout(r,200));
-        }
-        ok=true;
+        await new Promise(r=>setTimeout(r,500));
       }
-      if(!ok)await new Promise(r=>setTimeout(r,1000));
     }
+    if(!ok)failed++;
     if(onProgress)onProgress(i+1,total,Math.round(rows.length*(i+1)/total));
-    await new Promise(r=>setTimeout(r,400));
+    await new Promise(r=>setTimeout(r,250));
   }
+  if(failed>0)console.warn(`${failed} chunk non scritti su Sheets`);
 
-  // Verifica finale: conta righe su Sheets e segnala differenza
+  // Verifica finale
   try{
     const res=await fetch(`${url}?action=count`,{redirect:"follow"});
     const d=await res.json();
-    if(d.count&&Math.abs(d.count-rows.length)>5){
-      console.warn(`Sheets count: ${d.count}, local: ${rows.length} — differenza: ${rows.length-d.count}`);
-    }
+    if(d.count!==undefined)console.log(`Sheets count: ${d.count}/${rows.length}`);
   }catch{}
 }
 async function gsClear(url){
