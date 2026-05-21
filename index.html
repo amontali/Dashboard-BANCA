@@ -357,7 +357,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v8.9.1 · 21 mag 2026";
+const VERSION="v8.9.2 · 21 mag 2026";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",minimumFractionDigits:0,maximumFractionDigits:0,useGrouping:true}).format(n||0);
@@ -1027,7 +1027,7 @@ function SunburstChart({txs, excInvest, selCats, toggleCat}) {
     const d3 = window.d3;
     if (!d3 || !svgRef.current) return;
     const el = svgRef.current;
-    const W = Math.min(el.clientWidth||560, 560);
+    const W = el.clientWidth||600;
     const R = W/2;
     d3.select(el).selectAll("*").remove();
 
@@ -1123,8 +1123,8 @@ function SunburstChart({txs, excInvest, selCats, toggleCat}) {
   }, [buildData, selCats]);
 
   return (
-    <div style={{position:"relative",display:"inline-block",width:"100%",maxWidth:560}}>
-      <svg ref={svgRef} style={{width:"100%",maxWidth:560,display:"block",margin:"0 auto"}}/>
+    <div style={{position:"relative",display:"inline-block",width:"100%"}}>
+      <svg ref={svgRef} style={{width:"100%",display:"block",margin:"0 auto"}}/>
       {tip&&(
         <div style={{position:"absolute",left:tip.x,top:tip.y,background:"#1e293b",color:"#fff",
           borderRadius:8,padding:"8px 12px",fontSize:12,pointerEvents:"none",zIndex:100,
@@ -1145,7 +1145,7 @@ function ClickableTick({x,y,payload,onClick,activeNames,fill}){
   const isActive=!activeNames||activeNames.length===0||activeNames.includes(payload.value);
   return(
     <g transform={`translate(${x},${y})`} style={{cursor:"pointer"}} onClick={e=>onClick&&onClick(payload.value,e.ctrlKey||e.metaKey||e.shiftKey)}>
-      <rect x={-130} y={-10} width={130} height={20} fill="transparent"/>
+      <rect x={-160} y={-12} width={160} height={24} fill="transparent"/>
       <text x={-4} y={0} dy="0.35em" textAnchor="end"
         fill={isActive?(fill||"#1e293b"):"#94a3b8"}
         fontSize={13} fontWeight={isActive?700:400}>
@@ -1177,7 +1177,14 @@ function CategorieTab({txs,excInvest,selYear,selMonth,selYears,selMonths,onRuleA
   },[excInvest,selCat]);
 
   const agg=useMemo(()=>aggregate(txs,excInvest),[txs,excInvest]);
-  const catData=[...agg.catOut].sort((a,b)=>b.value-a.value); // TUTTE le categorie, ordinate per importo
+  // Deduplicare categorie che dopo applyAlias diventano uguali
+  const catDataRaw=agg.catOut;
+  const catDataMerged={};
+  catDataRaw.forEach(d=>{
+    const k=applyAlias(d.name)||d.name;
+    catDataMerged[k]=(catDataMerged[k]||0)+d.value;
+  });
+  const catData=Object.entries(catDataMerged).map(([name,value])=>({name,value})).sort((a,b)=>b.value-a.value);
 
   // ── Serie temporale per categoria selezionata ──────────────────────────────
   const timeSeries=useMemo(()=>{
@@ -1276,11 +1283,11 @@ function CategorieTab({txs,excInvest,selYear,selMonth,selYears,selMonths,onRuleA
             <BarChart data={[...catData].reverse()} layout="vertical" margin={{right:65}}>
               <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
               <XAxis type="number" tickFormatter={fmtK} tick={{fill:C.muted,fontSize:13}} tickLine={false}/>
-              <YAxis type="category" dataKey="name" width={130} tick={<ClickableTick onClick={toggleCat} activeNames={selCats}/>}/>
+              <YAxis type="category" dataKey="name" width={130} width={160} tick={<ClickableTick onClick={toggleCat} activeNames={selCats}/>}/>
               <Tooltip formatter={v=>fmt(v)} contentStyle={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,fontSize:12}}/>
               <Bar dataKey="value" name="Totale" radius={[0,4,4,0]} style={{cursor:"pointer"}}
                 onClick={(data,_,e)=>toggleCat(data.name,(e?.ctrlKey||e?.metaKey))}
-                label={{position:"right",formatter:v=>fmt(v),fontSize:11,fill:C.muted,fontWeight:600}}>
+                label={{position:"right",formatter:v=>fmt(v),fontSize:11,fill:"#475569",fontWeight:600,offset:5}}>
                 {[...catData].reverse().map((_,i)=>{
                   const name=[...catData].reverse()[i].name;
                   return<Cell key={i} fill={PASTEL[(catData.length-1-i)%PASTEL.length]} opacity={selCats.length>0&&!selCats.includes(name)?0.3:1}/>;
@@ -1292,7 +1299,9 @@ function CategorieTab({txs,excInvest,selYear,selMonth,selYears,selMonths,onRuleA
 
                 {/* SUNBURST — centro */}
         <Box title="Sunburst — clicca per selezionare (CTRL = multiplo)">
-          <SunburstChart txs={txs} excInvest={excInvest} selCats={selCats} toggleCat={toggleCat}/>
+          <div style={{display:"flex",justifyContent:"center",width:"100%"}}>
+            <SunburstChart txs={txs} excInvest={excInvest} selCats={selCats} toggleCat={toggleCat}/>
+          </div>
         </Box>
 
         {/* FORNITORI categoria selezionata — destra */}
@@ -2189,7 +2198,8 @@ function EntrateTab({txs, allTxs, selYear, selMonth}){
             <div style={{textAlign:"center",padding:"40px",color:C.faint}}>Nessuna entrata nel periodo selezionato</div>
           ):(
             <ResponsiveContainer width="100%" height={Math.max(300,catData.length*38)}>
-              <BarChart data={[...catData].reverse()} layout="vertical" margin={{right:80}}>
+              <BarChart data={[...catData].reverse()} layout="vertical" margin={{right:80,left:0}}
+              onClick={d=>{if(d?.activePayload?.[0]){toggleCat(d.activePayload[0].payload.name,d.nativeEvent?.ctrlKey||d.nativeEvent?.metaKey);}}}>
                 <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
                 <XAxis type="number" tickFormatter={fmtK} tick={{fill:C.muted,fontSize:12}} tickLine={false}/>
                 <YAxis type="category" dataKey="name" width={130} tick={{fill:C.text,fontSize:13,fontWeight:600}}/>
@@ -2578,7 +2588,10 @@ function App(){
         <div style={{background:C.card,borderBottom:`1px solid ${C.border}`,padding:"10px 16px",flexShrink:0,boxShadow:"0 1px 4px rgba(0,0,0,.04)"}}>
           <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
             <div style={{flex:1,minWidth:120}}>
-              <div style={{fontSize:16,fontWeight:800}}>💳 Conto Corrente</div>
+              <div style={{display:"flex",alignItems:"baseline",gap:10}}>
+                <div style={{fontSize:16,fontWeight:800}}>💳 Conto Corrente</div>
+                {txs.length>0&&<div style={{fontSize:13,fontWeight:700,color:"#60a5fa",borderLeft:"2px solid #60a5fa",paddingLeft:8}}>{TABS.find(([id])=>id===tab)?.[1]||""}</div>}
+              </div>
               <div style={{color:C.muted,fontSize:10}}>{txs.length.toLocaleString()} transazioni · <strong style={{color:"#60a5fa"}}>{periodLabel}</strong><span style={{marginLeft:8,background:"#f0fdf4",color:"#16a34a",borderRadius:4,padding:"1px 6px",fontSize:9,fontWeight:700,letterSpacing:0.5}}>{VERSION}</span></div>
             </div>
             <button disabled={syncing} onClick={()=>setModal({
@@ -2697,10 +2710,7 @@ function App(){
                 }}>{label}</button>
               ))}
             </div>
-            {/* Titolo sezione corrente */}
-            <div style={{fontSize:13,fontWeight:700,color:C.muted,marginBottom:10,paddingLeft:2,borderLeft:"3px solid #60a5fa",paddingLeft:8}}>
-              {TABS.find(([id])=>id===tab)?.[1]||""} — {periodLabel}
-            </div>
+
 
             {tab==="panoramica"&&<PanoramicaTab allTxs={txs} filteredTxs={filteredTxs} selYears={selYears} selYear={selYear} selMonth={selMonth} excInvest={excInvest} balanceSaldos={balanceSaldos}/>}
             {tab==="mensile"&&<MensileTab txs={filteredTxs} excInvest={excInvest}/>}
