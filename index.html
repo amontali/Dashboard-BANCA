@@ -373,7 +373,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v9.1.5 · 21 mag 2026";
+const VERSION="v9.1.6 · 21 mag 2026";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",minimumFractionDigits:0,maximumFractionDigits:0,useGrouping:true}).format(n||0);
@@ -1230,9 +1230,9 @@ function TransactionTable({rows, onRuleAdded, title, gsUrl}){
         return t2;
       });
       lsSave(updated);
-      // Aggiorna solo lo stato React — NO re-apply che sovrascriverebbe
       setInlineEdit(null);
-      onRuleAdded&&onRuleAdded(true); // true = skip re-apply
+      // Aggiorna stato React direttamente — NO re-apply
+      onRuleAdded&&onRuleAdded(true); // true = skipReapply + forza refresh
       return;
     } else {
       // Crea regola per tutti i simili
@@ -2524,6 +2524,7 @@ const GENERIC_VENDORS = [
 
 function needsReview(t){
   if(!t.uscita||t.uscita===0)return false;
+  if(t._manualCat)return false; // già categorizzato manualmente dall'utente
   if(NEUTRAL_CATS.includes(t.categoria))return false;
   const SKIP_CATS=["Prelievi ATM","Tasse","Spese Bancarie","Carta di Credito","Intermediari di Pagamento","Rate / Dom.","Stipendio"];
   if(SKIP_CATS.includes(t.categoria))return false;
@@ -3110,14 +3111,14 @@ function App(){
               const local=lsGet();
               if(local.length>0){
                 const updated=local.map(t=>{
-                  // Salta record modificati manualmente (_manualCat)
-                  if(skipReapply||t._manualCat)return t;
+                  if(t._manualCat)return t; // mai sovrascrivere modifiche manuali
+                  if(skipReapply)return t;  // no re-apply ma aggiorna stato
                   const cl=extractAndClassify(t.causale,t.descrizione,rules);
                   return{...t,vendor:cl.vendor,categoria:applyAlias(cl.categoria)};
                 });
-                lsSave(updated);setTxs(updated);
+                lsSave(updated);setTxs([...updated]); // forza re-render
               }
-              if(url)settingsPush(url);
+              if(!skipReapply&&url)settingsPush(url);
             }}/>}
             {tab==="regole"&&<RulesTab gsUrl={url} txs={txs} onRulesChange={()=>{
               const rules=rulesGet();
