@@ -357,7 +357,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v8.9.3 · 21 mag 2026";
+const VERSION="v8.9.6 · 21 mag 2026";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",minimumFractionDigits:0,maximumFractionDigits:0,useGrouping:true}).format(n||0);
@@ -1198,14 +1198,19 @@ function CategorieTab({txs,excInvest,selYear,selMonth,selYears,selMonths,onRuleA
   },[excInvest,selCat]);
 
   const agg=useMemo(()=>aggregate(txs,excInvest),[txs,excInvest]);
-  // Deduplicare categorie che dopo applyAlias diventano uguali
+  // Deduplicare categorie: normalizza nome (trim + case) e somma duplicati
   const catDataRaw=agg.catOut;
   const catDataMerged={};
+  const catDataNames={}; // mantieni il nome "canonico" (primo trovato)
   catDataRaw.forEach(d=>{
-    const k=applyAlias(d.name)||d.name;
-    catDataMerged[k]=(catDataMerged[k]||0)+d.value;
+    const k=(applyAlias(d.name)||d.name).trim();
+    const kl=k.toLowerCase();
+    if(!catDataNames[kl]) catDataNames[kl]=k;
+    catDataMerged[kl]=(catDataMerged[kl]||0)+d.value;
   });
-  const catData=Object.entries(catDataMerged).map(([name,value])=>({name,value})).sort((a,b)=>b.value-a.value);
+  const catData=Object.entries(catDataMerged)
+    .map(([kl,value])=>({name:catDataNames[kl],value}))
+    .sort((a,b)=>b.value-a.value);
 
   // ── Serie temporale per categoria selezionata ──────────────────────────────
   const timeSeries=useMemo(()=>{
@@ -1304,9 +1309,10 @@ function CategorieTab({txs,excInvest,selYear,selMonth,selYears,selMonths,onRuleA
             <BarChart data={[...catData].reverse()} layout="vertical" margin={{right:65}}>
               <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
               <XAxis type="number" tickFormatter={fmtK} tick={{fill:C.muted,fontSize:13}} tickLine={false}/>
-              <YAxis type="category" dataKey="name" width={130} width={165} tick={<ClickableTick onClick={toggleCat} activeNames={selCats}/>}/>
+              <YAxis type="category" dataKey="name" width={130} width={165} interval={0} tick={<ClickableTick onClick={toggleCat} activeNames={selCats}/>}/>
               <Tooltip formatter={v=>fmt(v)} contentStyle={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,fontSize:12}}/>
               <Bar dataKey="value" name="Totale" radius={[0,4,4,0]} style={{cursor:"pointer"}}
+                background={{fill:"transparent",cursor:"pointer",onClick:(data,i,e)=>toggleCat(data?.name||(e?.target?.parentNode?.__data__?.name||""),e?.ctrlKey||e?.metaKey)}}
                 onClick={(data,_,e)=>toggleCat(data.name,(e?.ctrlKey||e?.metaKey))}
                 label={({x,y,width,height,value})=>(
                     <text x={x+width+6} y={y+height/2} dy="0.35em"
