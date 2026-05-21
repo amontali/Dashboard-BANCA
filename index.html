@@ -373,7 +373,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v9.3.1 · 21 mag 2026";
+const VERSION="v9.3.2 · 21 mag 2026";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",minimumFractionDigits:0,maximumFractionDigits:0,useGrouping:true}).format(n||0);
@@ -1386,6 +1386,7 @@ function TransactionTable({rows, onRuleAdded, title, gsUrl}){
           onMouseDown={e=>{if(e.target===e.currentTarget)setInlineEdit(null);}}
           onKeyDown={e=>e.key==="Escape"&&setInlineEdit(null)}>
           <div style={{background:"#fff",borderRadius:14,padding:28,maxWidth:520,width:"100%",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}
+            onClick={e=>e.stopPropagation()}>
             <div style={{fontSize:17,fontWeight:800,color:"#1e40af",marginBottom:16}}>✏️ Modifica transazione</div>
             {/* Info record */}
             <div style={{background:"#f8fafc",borderRadius:8,padding:"10px 14px",marginBottom:14,fontSize:12}}>
