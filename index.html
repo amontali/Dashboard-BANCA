@@ -357,7 +357,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v8.9.2 · 21 mag 2026";
+const VERSION="v8.9.3 · 21 mag 2026";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",minimumFractionDigits:0,maximumFractionDigits:0,useGrouping:true}).format(n||0);
@@ -1143,14 +1143,35 @@ function SunburstChart({txs, excInvest, selCats, toggleCat}) {
 // Tick YAxis cliccabile per grafici categorie/venditori
 function ClickableTick({x,y,payload,onClick,activeNames,fill}){
   const isActive=!activeNames||activeNames.length===0||activeNames.includes(payload.value);
+  const name=payload.value||"";
+  // Split long labels into 2 lines at "/" or " " or after 14 chars
+  let line1=name, line2="";
+  if(name.length>14){
+    const splitAt=name.indexOf(" / ")>=0?name.indexOf(" / "):name.lastIndexOf(" ",14);
+    if(splitAt>0&&splitAt<=16){
+      line1=name.slice(0,splitAt);
+      line2=name.slice(splitAt).trim();
+    }
+  }
+  const lineH=line2?7:0;
   return(
-    <g transform={`translate(${x},${y})`} style={{cursor:"pointer"}} onClick={e=>onClick&&onClick(payload.value,e.ctrlKey||e.metaKey||e.shiftKey)}>
-      <rect x={-160} y={-12} width={160} height={24} fill="transparent"/>
-      <text x={-4} y={0} dy="0.35em" textAnchor="end"
-        fill={isActive?(fill||"#1e293b"):"#94a3b8"}
-        fontSize={13} fontWeight={isActive?700:400}>
-        {payload.value}
-      </text>
+    <g transform={`translate(${x},${y})`} style={{cursor:"pointer"}}
+      onClick={e=>onClick&&onClick(payload.value,e.ctrlKey||e.metaKey||e.shiftKey)}>
+      <rect x={-165} y={-14-lineH} width={165} height={28+lineH*2} fill="transparent"/>
+      {line2?(
+        <>
+          <text x={-4} y={-lineH} textAnchor="end"
+            fill={isActive?(fill||"#1e293b"):"#94a3b8"}
+            fontSize={12} fontWeight={isActive?700:400}>{line1}</text>
+          <text x={-4} y={lineH+2} textAnchor="end"
+            fill={isActive?(fill||"#1e293b"):"#94a3b8"}
+            fontSize={12} fontWeight={isActive?700:400}>{line2}</text>
+        </>
+      ):(
+        <text x={-4} y={0} dy="0.35em" textAnchor="end"
+          fill={isActive?(fill||"#1e293b"):"#94a3b8"}
+          fontSize={12} fontWeight={isActive?700:400}>{line1}</text>
+      )}
     </g>
   );
 }
@@ -1283,11 +1304,17 @@ function CategorieTab({txs,excInvest,selYear,selMonth,selYears,selMonths,onRuleA
             <BarChart data={[...catData].reverse()} layout="vertical" margin={{right:65}}>
               <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
               <XAxis type="number" tickFormatter={fmtK} tick={{fill:C.muted,fontSize:13}} tickLine={false}/>
-              <YAxis type="category" dataKey="name" width={130} width={160} tick={<ClickableTick onClick={toggleCat} activeNames={selCats}/>}/>
+              <YAxis type="category" dataKey="name" width={130} width={165} tick={<ClickableTick onClick={toggleCat} activeNames={selCats}/>}/>
               <Tooltip formatter={v=>fmt(v)} contentStyle={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,fontSize:12}}/>
               <Bar dataKey="value" name="Totale" radius={[0,4,4,0]} style={{cursor:"pointer"}}
                 onClick={(data,_,e)=>toggleCat(data.name,(e?.ctrlKey||e?.metaKey))}
-                label={{position:"right",formatter:v=>fmt(v),fontSize:11,fill:"#475569",fontWeight:600,offset:5}}>
+                label={({x,y,width,height,value})=>(
+                    <text x={x+width+6} y={y+height/2} dy="0.35em"
+                      fill="#475569" fontSize={11} fontWeight={600} textAnchor="start"
+                      style={{pointerEvents:"none"}}>
+                      {fmt(value)}
+                    </text>
+                  )}>
                 {[...catData].reverse().map((_,i)=>{
                   const name=[...catData].reverse()[i].name;
                   return<Cell key={i} fill={PASTEL[(catData.length-1-i)%PASTEL.length]} opacity={selCats.length>0&&!selCats.includes(name)?0.3:1}/>;
@@ -2198,7 +2225,7 @@ function EntrateTab({txs, allTxs, selYear, selMonth}){
             <div style={{textAlign:"center",padding:"40px",color:C.faint}}>Nessuna entrata nel periodo selezionato</div>
           ):(
             <ResponsiveContainer width="100%" height={Math.max(300,catData.length*38)}>
-              <BarChart data={[...catData].reverse()} layout="vertical" margin={{right:80,left:0}}
+              <BarChart data={[...catData].reverse()} layout="vertical" margin={{right:90,left:5}}
               onClick={d=>{if(d?.activePayload?.[0]){toggleCat(d.activePayload[0].payload.name,d.nativeEvent?.ctrlKey||d.nativeEvent?.metaKey);}}}>
                 <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
                 <XAxis type="number" tickFormatter={fmtK} tick={{fill:C.muted,fontSize:12}} tickLine={false}/>
