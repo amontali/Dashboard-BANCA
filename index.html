@@ -896,6 +896,7 @@ function PanoramicaTab({allTxs,filteredTxs,selYears,selYear,selMonth,excInvest,b
   const displayTxs=selYears.length>0?filteredTxs:allTxs;
   const agg=useMemo(()=>aggregate(displayTxs,excInvest),[displayTxs,excInvest]);
   return(
+    <>
     <div style={{display:"flex",flexDirection:"column",gap:16}}>
       <div className="grid2">
         <Box title={selYears.length>1?`Entrate vs Uscite — ${selYears.join(", ")}`:selYear?(selMonth?`Entrate vs Uscite — ${MONTHS_IT[selMonth-1]} ${selYear}`:`Entrate vs Uscite mensili — ${selYear}`):"Entrate vs Uscite per Anno"} minH={300}>
@@ -2702,6 +2703,7 @@ function RevisioneTab({txs, onRuleAdded}){
         </div>
       </div>
     )}
+    </>
   );
 }
 
