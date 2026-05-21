@@ -373,7 +373,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v9.1.6 · 21 mag 2026";
+const VERSION="v9.1.7 · 21 mag 2026";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",minimumFractionDigits:0,maximumFractionDigits:0,useGrouping:true}).format(n||0);
@@ -412,7 +412,7 @@ function extractRawVendor(causale,desc){
   const pm=raw.match(/[Pp]resso\s+(.+?)(?:\s*-\s*(?:VIA|V\.?LE|VIALE|CORSO|C\.?SO|PIAZZA|P\.?ZZA|LOC|FRAZ|STR|SNC|S\.N\.C|\d{5})|$)/i);
   if(pm)return{source:"presso",raw:pm[1].trim()};
   // Bonifico: "A FAVORE DI nome [C. BENEF. IBAN]"
-  const bm=raw.match(/A FAVORE DI\s+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9\s\'&.-]{1,40}?)(?:\s+C\.?\s*BENEF|\s{2,}|\s+(?:IBAN|IT\d\d)|$)/i);
+  const bm=raw.match(/A FAVORE DI\s+(.+?)(?:\s+C\.?\s*BENEF|\s{2,}|\s+(?:IBAN|IT\d{2}[A-Z0-9])|$)/i);
   if(bm)return{source:"bonifico",raw:bm[1].trim()};
   // Addebito SDD/MAV/Diretto — estrai vendor da "Creditor id. ITXXX... VENDOR Id Mandato"
   if(/ADDEBITO\s+(?:SDD|MAV|DIRETTO|UTENZA)/i.test(raw)){
