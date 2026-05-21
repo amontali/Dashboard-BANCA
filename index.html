@@ -357,7 +357,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v8.9.6 · 21 mag 2026";
+const VERSION="v8.9.7 · 21 mag 2026";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",minimumFractionDigits:0,maximumFractionDigits:0,useGrouping:true}).format(n||0);
@@ -1144,33 +1144,34 @@ function SunburstChart({txs, excInvest, selCats, toggleCat}) {
 function ClickableTick({x,y,payload,onClick,activeNames,fill}){
   const isActive=!activeNames||activeNames.length===0||activeNames.includes(payload.value);
   const name=payload.value||"";
-  // Split long labels into 2 lines at "/" or " " or after 14 chars
-  let line1=name, line2="";
-  if(name.length>14){
-    const splitAt=name.indexOf(" / ")>=0?name.indexOf(" / "):name.lastIndexOf(" ",14);
-    if(splitAt>0&&splitAt<=16){
-      line1=name.slice(0,splitAt);
-      line2=name.slice(splitAt).trim();
-    }
+  const MAX_W=14; // caratteri per riga prima di andare a capo
+  // Split dinamico: trova il punto di split più naturale
+  function splitLabel(s){
+    if(s.length<=MAX_W) return [s,""];
+    // Preferisci split su " / "
+    const slashIdx=s.indexOf(" / ");
+    if(slashIdx>0&&slashIdx<=MAX_W+2) return [s.slice(0,slashIdx), s.slice(slashIdx+1).trim()];
+    // Split sull'ultimo spazio entro MAX_W
+    const spaceIdx=s.lastIndexOf(" ",MAX_W);
+    if(spaceIdx>0) return [s.slice(0,spaceIdx), s.slice(spaceIdx+1)];
+    // Nessun buon punto: tronca
+    return [s.slice(0,MAX_W), s.slice(MAX_W)];
   }
-  const lineH=line2?7:0;
+  const [line1,line2]=splitLabel(name);
+  const dy=line2?8:0;
+  const col=isActive?(fill||"#1e293b"):"#94a3b8";
+  const fw=isActive?700:400;
   return(
     <g transform={`translate(${x},${y})`} style={{cursor:"pointer"}}
       onClick={e=>onClick&&onClick(payload.value,e.ctrlKey||e.metaKey||e.shiftKey)}>
-      <rect x={-165} y={-14-lineH} width={165} height={28+lineH*2} fill="transparent"/>
+      <rect x={-165} y={-16-dy} width={165} height={32+dy*2} fill="transparent"/>
       {line2?(
         <>
-          <text x={-4} y={-lineH} textAnchor="end"
-            fill={isActive?(fill||"#1e293b"):"#94a3b8"}
-            fontSize={12} fontWeight={isActive?700:400}>{line1}</text>
-          <text x={-4} y={lineH+2} textAnchor="end"
-            fill={isActive?(fill||"#1e293b"):"#94a3b8"}
-            fontSize={12} fontWeight={isActive?700:400}>{line2}</text>
+          <text x={-4} y={-dy} textAnchor="end" fill={col} fontSize={11} fontWeight={fw}>{line1}</text>
+          <text x={-4} y={dy} textAnchor="end" fill={col} fontSize={11} fontWeight={fw}>{line2}</text>
         </>
       ):(
-        <text x={-4} y={0} dy="0.35em" textAnchor="end"
-          fill={isActive?(fill||"#1e293b"):"#94a3b8"}
-          fontSize={12} fontWeight={isActive?700:400}>{line1}</text>
+        <text x={-4} y={0} dy="0.35em" textAnchor="end" fill={col} fontSize={12} fontWeight={fw}>{line1}</text>
       )}
     </g>
   );
