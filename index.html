@@ -357,7 +357,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v8.9.11 · 21 mag 2026";
+const VERSION="v8.9.12 · 21 mag 2026";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",minimumFractionDigits:0,maximumFractionDigits:0,useGrouping:true}).format(n||0);
@@ -464,6 +464,11 @@ function normalizeVendorName(raw){
 
 // STADIO 3: Pipeline completa — estrai + normalizza + categorizza
 function extractAndClassify(causale,desc,userRules){
+  // PRE-CHECK: Prelievo carta/bancomat → sempre "Prelievi ATM" indipendentemente dal vendor
+  const rawText=(causale+" "+desc).toUpperCase();
+  if(/PRELIEVO\s+CARTA|PRELIEVO\s+CONTANTE|PRELIEVO\s+BANCOMAT/.test(rawText)){
+    return{vendor:"Prelievo contante",categoria:applyAlias("Prelievi ATM")};
+  }
   // 1. Estrai
   const extracted=extractRawVendor(causale,desc);
   // 2. Normalizza
