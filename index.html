@@ -357,7 +357,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v8.9.7 · 21 mag 2026";
+const VERSION="v8.9.9 · 21 mag 2026";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",minimumFractionDigits:0,maximumFractionDigits:0,useGrouping:true}).format(n||0);
@@ -1144,13 +1144,13 @@ function SunburstChart({txs, excInvest, selCats, toggleCat}) {
 function ClickableTick({x,y,payload,onClick,activeNames,fill}){
   const isActive=!activeNames||activeNames.length===0||activeNames.includes(payload.value);
   const name=payload.value||"";
-  const MAX_W=14; // caratteri per riga prima di andare a capo
+  const MAX_W=20; // caratteri per riga prima di andare a capo (~165px / 8px per char)
   // Split dinamico: trova il punto di split più naturale
   function splitLabel(s){
     if(s.length<=MAX_W) return [s,""];
     // Preferisci split su " / "
     const slashIdx=s.indexOf(" / ");
-    if(slashIdx>0&&slashIdx<=MAX_W+2) return [s.slice(0,slashIdx), s.slice(slashIdx+1).trim()];
+    if(slashIdx>0) return [s.slice(0,slashIdx), s.slice(slashIdx+1).trim()];
     // Split sull'ultimo spazio entro MAX_W
     const spaceIdx=s.lastIndexOf(" ",MAX_W);
     if(spaceIdx>0) return [s.slice(0,spaceIdx), s.slice(spaceIdx+1)];
@@ -1306,7 +1306,7 @@ function CategorieTab({txs,excInvest,selYear,selMonth,selYears,selMonths,onRuleA
       <div className="cat-grid" style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr) minmax(280px,380px)",gap:8,alignItems:"start"}}>
         {/* BARRE — sinistra */}
         <Box title="Totale per categoria — clicca (CTRL+click = multiplo)">
-          <ResponsiveContainer width="100%" height={Math.max(400,catData.length*32)}>
+          <ResponsiveContainer width="100%" height={Math.max(400,catData.length*36)}>
             <BarChart data={[...catData].reverse()} layout="vertical" margin={{right:65}}>
               <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
               <XAxis type="number" tickFormatter={fmtK} tick={{fill:C.muted,fontSize:13}} tickLine={false}/>
@@ -2232,7 +2232,7 @@ function EntrateTab({txs, allTxs, selYear, selMonth}){
             <div style={{textAlign:"center",padding:"40px",color:C.faint}}>Nessuna entrata nel periodo selezionato</div>
           ):(
             <ResponsiveContainer width="100%" height={Math.max(300,catData.length*38)}>
-              <BarChart data={[...catData].reverse()} layout="vertical" margin={{right:90,left:5}}
+              <BarChart data={[...catData].reverse()} layout="vertical" margin={{right:90,left:5}} barCategoryGap="30%"
               onClick={d=>{if(d?.activePayload?.[0]){toggleCat(d.activePayload[0].payload.name,d.nativeEvent?.ctrlKey||d.nativeEvent?.metaKey);}}}>
                 <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
                 <XAxis type="number" tickFormatter={fmtK} tick={{fill:C.muted,fontSize:12}} tickLine={false}/>
