@@ -146,7 +146,7 @@ const CHAIN_MAP=[
   // ── Elettronica ──
   [/mediaworld|media.world/i,"MediaWorld","Elettronica"],
   [/unieuro/i,"Unieuro","Elettronica"],
-  [/\bexpert\b/i,"Expert","Elettronica"],
+  [/^expert$|\bexpert\b(?!\s+srl|\s+color)/i,"Expert","Elettronica"],
   [/euronics/i,"Euronics","Elettronica"],
   [/\btrony\b/i,"Trony","Elettronica"],
   [/saturn/i,"Saturn","Elettronica"],
@@ -357,7 +357,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v8.9 · 21 mag 2026";
+const VERSION="v8.9.1 · 21 mag 2026";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",minimumFractionDigits:0,maximumFractionDigits:0,useGrouping:true}).format(n||0);
@@ -400,14 +400,20 @@ function extractRawVendor(causale,desc){
   if(bm)return{source:"bonifico",raw:bm[1].trim()};
   // Addebito SDD/MAV/Diretto — estrai vendor da "Creditor id. ITXXX... VENDOR Id Mandato"
   if(/ADDEBITO\s+(?:SDD|MAV|DIRETTO|UTENZA)/i.test(raw)){
-    // Pattern: dopo codice creditor id (ITxx...) c'è il nome, poi "Id Mandato"
-    const sddCreditor=raw.match(/Creditor\s+id\.?\s+[A-Z]{2}[0-9A-Z]{10,}\s+([A-Za-zÀ-ÿ][^\n]{2,50?})\s+Id\s+Mandato/i);
-    if(sddCreditor)return{source:"addebito",raw:sddCreditor[1].trim()};
-    // Fallback: testo subito dopo ADDEBITO SDD fino a "Scad." o fine
-    const am=raw.match(/ADDEBITO\s+(?:SDD|MAV|DIRETTO|UTENZA)\s+CORE\s+Scad\.\s+[\d/]+\s+Imp\.\s+[\d.]+\s+(?:Credito|Creditor).+?\s+([A-Z][A-Za-zÀ-ÿ\s&'.]{2,40?})\s+(?:Id\s+Mandato|Debitore)/i);
-    if(am)return{source:"addebito",raw:am[1].trim()};
-    const am2=raw.match(/ADDEBITO\s+(?:SDD|MAV|DIRETTO|UTENZA)\s+(.+?)(?:\s{2,}|Scad\.|$)/i);
-    if(am2)return{source:"addebito",raw:am2[1].trim()};
+    // Pattern principale: dopo "Creditor id. <CODE>" c'è il nome fino a "Id Mandato" o "Debitore"
+    // \S+ cattura il codice creditor (es. IT22001..., LU96ZZZ...)
+    const sddCreditor=raw.match(/Creditor\s+id\.?\s+\S+\s+(.+?)\s+(?:Id\s+Mandato|Debitore)/i);
+    if(sddCreditor){
+      const vendorRaw=sddCreditor[1].trim();
+      // Scarta se troppo lungo (>60 chars = probabilmente ha catturato troppo)
+      if(vendorRaw.length<=60)return{source:"addebito",raw:vendorRaw};
+      // Tronca alla prima parola significativa
+      const short=vendorRaw.split(/\s+/).slice(0,3).join(" ");
+      return{source:"addebito",raw:short};
+    }
+    // Fallback MAV/RAV: prendi il testo dopo "Addebito MAV n. XXXXXX"
+    const mav=raw.match(/ADDEBITO\s+MAV\s+n\.?\s+\S+\s+(.+?)(?:\s{2,}|$)/i);
+    if(mav)return{source:"addebito",raw:mav[1].trim()};
   }
   return null;
 }
@@ -1134,6 +1140,22 @@ function SunburstChart({txs, excInvest, selCats, toggleCat}) {
 }
 
 
+// Tick YAxis cliccabile per grafici categorie/venditori
+function ClickableTick({x,y,payload,onClick,activeNames,fill}){
+  const isActive=!activeNames||activeNames.length===0||activeNames.includes(payload.value);
+  return(
+    <g transform={`translate(${x},${y})`} style={{cursor:"pointer"}} onClick={e=>onClick&&onClick(payload.value,e.ctrlKey||e.metaKey||e.shiftKey)}>
+      <rect x={-130} y={-10} width={130} height={20} fill="transparent"/>
+      <text x={-4} y={0} dy="0.35em" textAnchor="end"
+        fill={isActive?(fill||"#1e293b"):"#94a3b8"}
+        fontSize={13} fontWeight={isActive?700:400}>
+        {payload.value}
+      </text>
+    </g>
+  );
+}
+
+
 function CategorieTab({txs,excInvest,selYear,selMonth,selYears,selMonths,onRuleAdded}){
   const [selCats,setSelCats]=useState([]); // [] = nessuna selezione
   useEffect(()=>{
@@ -1254,7 +1276,7 @@ function CategorieTab({txs,excInvest,selYear,selMonth,selYears,selMonths,onRuleA
             <BarChart data={[...catData].reverse()} layout="vertical" margin={{right:65}}>
               <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
               <XAxis type="number" tickFormatter={fmtK} tick={{fill:C.muted,fontSize:13}} tickLine={false}/>
-              <YAxis type="category" dataKey="name" width={130} tick={{fill:C.text,fontSize:12,fontWeight:600}}/>
+              <YAxis type="category" dataKey="name" width={130} tick={<ClickableTick onClick={toggleCat} activeNames={selCats}/>}/>
               <Tooltip formatter={v=>fmt(v)} contentStyle={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,fontSize:12}}/>
               <Bar dataKey="value" name="Totale" radius={[0,4,4,0]} style={{cursor:"pointer"}}
                 onClick={(data,_,e)=>toggleCat(data.name,(e?.ctrlKey||e?.metaKey))}
@@ -2687,14 +2709,12 @@ function App(){
               const local=lsGet();
               if(local.length>0){
                 const updated=local.map(t=>{
-                  const v=t.vendor||extractVendor(t.causale,t.descrizione);
-                  const norm=normalizeVendor(v,rules);
-                  if(norm)return{...t,vendor:norm.name||v,categoria:applyAlias(norm.cat)};
-                  return t;
+                  const cl=extractAndClassify(t.causale,t.descrizione,rules);
+                  return{...t,vendor:cl.vendor,categoria:applyAlias(cl.categoria)};
                 });
                 lsSave(updated);setTxs(updated);
               }
-              if(url)settingsPush(url);
+              if(url)settingsPush(url).then(()=>console.log("✅ Regole Sheets:",rulesGet().length));
             }}/>}
             {tab==="venditori"&&<VenditoriTab allTxs={txs} filteredTxs={filteredTxs} selYear={selYear} selMonth={selMonth} selYears={selYears} selMonths={selMonths}/>}
             {tab==="entrate"&&<EntrateTab txs={filteredTxs} allTxs={txs} selYear={selYear} selMonth={selMonth}/>}
@@ -2705,16 +2725,13 @@ function App(){
               const local=lsGet();
               if(local.length>0){
                 const updated=local.map(t=>{
-                  const v=t.vendor||extractVendor(t.causale,t.descrizione);
-                  const norm=normalizeVendor(v,rules);
-                  if(norm)return{...t,vendor:norm.name||v,categoria:applyAlias(norm.cat)};
-                  return t;
+                  const cl=extractAndClassify(t.causale,t.descrizione,rules);
+                  return{...t,vendor:cl.vendor,categoria:applyAlias(cl.categoria)};
                 });
                 lsSave(updated);
                 setTxs(updated);
               }
               setRulesRev(v=>v+1);
-              // Sync immediato su Sheets
               if(url){
                 settingsPush(url).then(()=>console.log("✅ Regole salvate su Sheets:",rulesGet().length));
               }
