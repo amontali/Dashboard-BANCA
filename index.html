@@ -373,7 +373,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v9.1.8 · 21 mag 2026";
+const VERSION="v9.1.9 · 21 mag 2026";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",minimumFractionDigits:0,maximumFractionDigits:0,useGrouping:true}).format(n||0);
@@ -1273,7 +1273,7 @@ function TransactionTable({rows, onRuleAdded, title, gsUrl}){
                 <td style={{padding:"5px 6px",overflow:"hidden",whiteSpace:"nowrap"}}>
                   <div style={{display:"flex",alignItems:"center",gap:4}}>
                     <span style={{background:"#eff6ff",color:"#3b82f6",borderRadius:4,padding:"2px 6px",fontSize:11,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:110,display:"inline-block"}} title={t.categoria}>{t.categoria}</span>
-                    <button onClick={()=>setInlineEdit({pattern:t.vendor||"",name:t.vendor||"",categoria:t.categoria,date:t.date,_key:t.date+"|"+t.uscita+"|"+t.causale,_dateChanged:false})}
+                    <button onClick={()=>setInlineEdit({pattern:t.vendor||"",name:t.vendor||"",categoria:t.categoria,date:t.date,importo:t.uscita||t.entrata,descrizione:t.descrizione,vendor:t.vendor,_key:t.date+"|"+t.uscita+"|"+t.causale,_dateChanged:false,_modo:null,_vendorOverride:""})}
                       title="Modifica categoria"
                       style={{background:"transparent",border:"none",cursor:"pointer",fontSize:11,padding:"1px 3px",color:C.muted,flexShrink:0}}>✏️</button>
                   </div>
@@ -2548,19 +2548,28 @@ function RevisioneTab({txs, onRuleAdded}){
   },[]);
 
   function saveRule(){
-    const r=[...rulesGet()];
-    if(inlineEdit?.pattern?.trim()){
-      r.push({id:Date.now().toString(),pattern:inlineEdit.pattern.trim(),name:inlineEdit.name.trim()||null,category:inlineEdit.categoria});
-      rulesSave(r);
-    }
-    if(inlineEdit?._dateChanged&&inlineEdit?.date){
-      const [yyyy,mm]=[inlineEdit.date.slice(0,4),inlineEdit.date.slice(5,7)];
+    if(!inlineEdit?._modo)return;
+    if(inlineEdit._modo==="record"){
+      if(!inlineEdit.categoria)return;
       const updated=lsGet().map(t2=>{
         const key=t2.date+"|"+t2.uscita+"|"+t2.causale;
-        if(key===inlineEdit._key)return{...t2,date:inlineEdit.date,ym:`${yyyy}-${mm}`,year:+yyyy,month:+mm};
+        if(key===inlineEdit._key){
+          const patch={...t2,categoria:inlineEdit.categoria,_manualCat:true};
+          if(inlineEdit._vendorOverride?.trim())patch.vendor=inlineEdit._vendorOverride.trim();
+          return patch;
+        }
         return t2;
       });
       lsSave(updated);
+      setInlineEdit(null);
+      onRuleAdded&&onRuleAdded(true);
+      return;
+    }
+    // Modalità: crea regola
+    if(inlineEdit?.pattern?.trim()){
+      const r=[...rulesGet()];
+      r.push({id:Date.now().toString(),pattern:inlineEdit.pattern.trim(),name:inlineEdit.name.trim()||null,category:inlineEdit.categoria});
+      rulesSave(r);
     }
     setInlineEdit(null);
     onRuleAdded&&onRuleAdded();
