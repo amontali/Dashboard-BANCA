@@ -44,6 +44,20 @@ const C={
   amber:"#fcd34d",purple:"#c4b5fd",teal:"#5eead4",
   sidebar:"#f1f5f9",sideActive:"#60a5fa"
 };
+
+// ── PALETTE DETERMINISTICA ────────────────────────────────────────────────────
+// Assegna colore fisso per nome categoria — uguale in tutti i grafici
+function hashStr(s){let h=0;for(let i=0;i<s.length;i++){h=((h<<5)-h)+s.charCodeAt(i);h|=0;}return Math.abs(h);}
+function getCatColor(name){
+  const PALETTE_DET=[
+    "#93c5fd","#6ee7b7","#fcd34d","#fca5a5","#c4b5fd",
+    "#fdba74","#67e8f9","#bef264","#f9a8d4","#5eead4",
+    "#cbd5e1","#a5b4fc","#86efac","#fde68a","#ddd6fe",
+    "#fbcfe8","#bae6fd","#d9f99d","#fecaca","#e9d5ff"
+  ];
+  return PALETTE_DET[hashStr(name||"")%PALETTE_DET.length];
+}
+
 const PASTEL=[
   "#93c5fd","#6ee7b7","#fcd34d","#fca5a5","#c4b5fd",
   "#fdba74","#67e8f9","#bef264","#f9a8d4","#5eead4","#cbd5e1","#a5b4fc"
@@ -72,7 +86,7 @@ const CHAIN_MAP=[
   [/\besso\b/i,"Esso","Carburante"],
   [/totalenerg/i,"TotalEnergies","Carburante"],
   [/cristella.petroli|iperstaroil|\bapi\b.*(?:pv|carb)/i,null,"Carburante"],
-  [/amzn\b|amazon/i,"Amazon","E-commerce"],
+  [/amzn?\b|amazon|\bamz\b/i,"Amazon","E-commerce"],
   [/\btemu\b/i,"Temu","E-commerce"],
   [/\bebay\b/i,"eBay","E-commerce"],
   [/zalando/i,"Zalando","E-commerce"],
@@ -357,7 +371,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v8.9.12 · 21 mag 2026";
+const VERSION="v9.0 · 21 mag 2026";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",minimumFractionDigits:0,maximumFractionDigits:0,useGrouping:true}).format(n||0);
@@ -569,10 +583,9 @@ function extractMetodo(causale, desc){
   if(/ADDEBITO\s+SDD|ADDEBITO\s+DIRETTO|DOMICILIAZIONE/.test(c))return"SDD/Domicil.";
   if(/GIROCONTO|GIRO\s+CONTO|CONTO\s+DEPOSITO/.test(c))return"Giroconto";
   if(/PRELIEVO\s+CONTANTE|PRELIEVO\s+ATM|BANCOMAT(?!\s+POS)/.test(c))return"Contanti";
-  if(/PAGOBANCOMAT|OPERAZIONE\s+VPAY|VPAY|MAESTRO/.test(c))return"Bancomat";
-  if(/MASTERCARD|VISA(?!\s+DEBIT)|C-LESS|CONTACTLESS/.test(c))return"Bancomat"; // default C-less = bancomat
-  if(/CARTA\s+DI\s+CREDITO|ADDEBITO\s+CARTA\s+DI\s+CREDITO/.test(c))return"Carta di Credito";
-  if(/PAGAMENTO\s+POS/.test(c))return"Bancomat";
+  if(/ADDEBITO\s+CARTA\s+DI\s+CREDITO|CANONE.*CARTA|RATA.*CARTA\s+CREDITO/.test(c))return"Carta di Credito";
+  if(/PAGOBANCOMAT|OPERAZIONE\s+VPAY|VPAY|MAESTRO|PAGAMENTO\s+POS/.test(c))return"Carta di Debito";
+  if(/MASTERCARD|VISA|C-LESS|CONTACTLESS/.test(c))return"Carta di Debito";
   if(/BONIFICO|SEPA|VIREMENT|A\s+FAVORE\s+DI/.test(c))return"Bonifico";
   if(/IMPOSTA\s+DI\s+BOLLO|CANONE|COMMISSIONE|INTERESSI|SPESE\s+TENUTA/.test(c))return"Spesa Bancaria";
   if(/STIPENDIO|EMOLUMENTI|ACCREDITO\s+STIPENDIO/.test(c))return"Accredito";
@@ -1183,6 +1196,144 @@ function ClickableTick({x,y,payload,onClick,activeNames,fill}){
 }
 
 
+// ── COMPONENTE STANDARD LISTA TRANSAZIONI ─────────────────────────────────────
+function TransactionTable({rows, onRuleAdded, title, gsUrl}){
+  const [sortBy,setSortBy]=useState("date");
+  const [inlineEdit,setInlineEdit]=useState(null);
+
+  useEffect(()=>{
+    const h=e=>{if(e.key==="Escape")setInlineEdit(null);};
+    window.addEventListener("keydown",h);
+    return()=>window.removeEventListener("keydown",h);
+  },[]);
+
+  const sorted=useMemo(()=>
+    sortBy==="date"?[...rows].sort((a,b)=>b.date.localeCompare(a.date))
+                  :[...rows].sort((a,b)=>b.uscita-a.uscita)
+  ,[rows,sortBy]);
+
+  function saveRule(){
+    const r=[...rulesGet()];
+    if(inlineEdit?.pattern?.trim()){
+      r.push({id:Date.now().toString(),pattern:inlineEdit.pattern.trim(),name:inlineEdit.name.trim()||null,category:inlineEdit.categoria});
+      rulesSave(r);
+    }
+    if(inlineEdit?._dateChanged&&inlineEdit?.date){
+      const [yyyy,mm]=[inlineEdit.date.slice(0,4),inlineEdit.date.slice(5,7)];
+      const updated=lsGet().map(t2=>{
+        const key=t2.date+"|"+t2.uscita+"|"+t2.causale;
+        if(key===inlineEdit._key)return{...t2,date:inlineEdit.date,ym:`${yyyy}-${mm}`,year:+yyyy,month:+mm};
+        return t2;
+      });
+      lsSave(updated);
+    }
+    setInlineEdit(null);
+    onRuleAdded&&onRuleAdded();
+  }
+
+  const total=sorted.reduce((s,t)=>s+(t.uscita||t.entrata||0),0);
+
+  return(
+    <Box title={title||`📋 Transazioni (${sorted.length} record)`}>
+      <div style={{display:"flex",gap:8,marginBottom:10,alignItems:"center",flexWrap:"wrap"}}>
+        <span style={{fontSize:11,color:C.muted,fontWeight:600}}>Ordina:</span>
+        <button onClick={()=>setSortBy("date")} style={{background:sortBy==="date"?"#60a5fa":"transparent",color:sortBy==="date"?"#fff":C.muted,border:`1px solid ${sortBy==="date"?"#60a5fa":C.border}`,borderRadius:5,padding:"3px 10px",cursor:"pointer",fontSize:11}}>Data ↓</button>
+        <button onClick={()=>setSortBy("amount")} style={{background:sortBy==="amount"?"#60a5fa":"transparent",color:sortBy==="amount"?"#fff":C.muted,border:`1px solid ${sortBy==="amount"?"#60a5fa":C.border}`,borderRadius:5,padding:"3px 10px",cursor:"pointer",fontSize:11}}>Importo ↓</button>
+        <span style={{marginLeft:"auto",fontSize:11,color:C.faint}}>Totale: <strong style={{color:C.text}}>{fmt(total)}</strong></span>
+      </div>
+      <div style={{overflowX:"auto",WebkitOverflowScrolling:"touch"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:13,tableLayout:"auto",minWidth:700}}>
+          <thead>
+            <tr style={{borderBottom:`2px solid ${C.border}`,background:"#f8fafc"}}>
+              {["Categoria","Data","Venditore","Descrizione","Importo"].map(h=>(
+                <th key={h} style={{textAlign:h==="Importo"?"right":"left",padding:"7px 8px",color:C.muted,fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:0.5,whiteSpace:"nowrap",overflow:"hidden"}}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((t,i)=>(
+              <tr key={i} style={{borderBottom:`1px solid ${C.border}`}}
+                onMouseEnter={e=>e.currentTarget.style.background="#f8fafc"}
+                onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                <td style={{padding:"5px 6px",overflow:"hidden",whiteSpace:"nowrap"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:4}}>
+                    <span style={{background:"#eff6ff",color:"#3b82f6",borderRadius:4,padding:"2px 6px",fontSize:11,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:110,display:"inline-block"}} title={t.categoria}>{t.categoria}</span>
+                    <button onClick={()=>setInlineEdit({pattern:t.vendor||"",name:t.vendor||"",categoria:t.categoria,date:t.date,_key:t.date+"|"+t.uscita+"|"+t.causale,_dateChanged:false})}
+                      title="Modifica categoria"
+                      style={{background:"transparent",border:"none",cursor:"pointer",fontSize:11,padding:"1px 3px",color:C.muted,flexShrink:0}}>✏️</button>
+                  </div>
+                </td>
+                <td style={{padding:"5px 6px",color:C.muted,whiteSpace:"nowrap",fontSize:12,overflow:"hidden"}}>{t.date}</td>
+                <td style={{padding:"5px 6px",color:C.text,fontWeight:600,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.vendor||"—"}</td>
+                <td style={{padding:"5px 6px",color:"#475569",fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={t.descrizione}>{t.descrizione}</td>
+                <td style={{padding:"5px 6px",color:t.entrata>0?"#10b981":"#ef4444",fontWeight:700,whiteSpace:"nowrap",textAlign:"right",fontSize:12}}>{t.entrata>0?"+"+fmt(t.entrata):"-"+fmt(t.uscita)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Modal modifica */}
+      {inlineEdit&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}
+          onMouseDown={e=>{if(e.target===e.currentTarget)setInlineEdit(null);}}
+          onKeyDown={e=>e.key==="Escape"&&setInlineEdit(null)}>
+          <div style={{background:"#fff",borderRadius:14,padding:28,maxWidth:520,width:"100%",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}
+            onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:17,fontWeight:800,color:"#1e40af",marginBottom:18}}>✏️ Modifica transazione</div>
+            <div style={{display:"flex",flexDirection:"column",gap:14}}>
+              <div style={{background:"#fffbeb",border:"1px solid #fde68a",borderRadius:8,padding:"10px 12px"}}>
+                <div style={{fontSize:11,color:"#92400e",fontWeight:700,marginBottom:5}}>📅 DATA — effetto solo su questa transazione</div>
+                <input type="date" value={inlineEdit.date||""}
+                  onChange={e=>setInlineEdit({...inlineEdit,date:e.target.value,_dateChanged:true})}
+                  style={{width:"100%",padding:"9px 12px",border:`1px solid ${inlineEdit._dateChanged?"#f59e0b":"#fde68a"}`,borderRadius:7,fontSize:14,boxSizing:"border-box"}}/>
+                {inlineEdit._dateChanged&&<div style={{fontSize:11,color:"#f59e0b",marginTop:4}}>⚠️ Modifica solo il posizionamento temporale di questo record.</div>}
+              </div>
+              <div style={{height:1,background:"#e2e8f0"}}/>
+              <div style={{fontSize:11,color:"#3b82f6",fontWeight:700}}>📋 REGOLA — si applica a tutte le transazioni con questo pattern</div>
+              <div>
+                <div style={{fontSize:11,color:C.muted,fontWeight:700,marginBottom:5}}>PATTERN</div>
+                <input autoFocus value={inlineEdit.pattern}
+                  onChange={e=>setInlineEdit({...inlineEdit,pattern:e.target.value})}
+                  onKeyDown={e=>e.key==="Enter"&&saveRule()}
+                  placeholder="es: noaloil, la botte..."
+                  style={{width:"100%",padding:"9px 12px",border:"1px solid #93c5fd",borderRadius:7,fontSize:14,boxSizing:"border-box"}}/>
+              </div>
+              <div>
+                <div style={{fontSize:11,color:C.muted,fontWeight:700,marginBottom:5}}>NOME VISUALIZZATO (opz.)</div>
+                <input value={inlineEdit.name}
+                  onChange={e=>setInlineEdit({...inlineEdit,name:e.target.value})}
+                  onKeyDown={e=>e.key==="Enter"&&saveRule()}
+                  placeholder="es: La Botte, Cafe Mr. John..."
+                  style={{width:"100%",padding:"9px 12px",border:"1px solid #93c5fd",borderRadius:7,fontSize:14,boxSizing:"border-box"}}/>
+              </div>
+              <div>
+                <div style={{fontSize:11,color:C.muted,fontWeight:700,marginBottom:5}}>CATEGORIA</div>
+                <select value={inlineEdit.categoria}
+                  onChange={e=>setInlineEdit({...inlineEdit,categoria:e.target.value})}
+                  style={{width:"100%",padding:"9px 12px",border:"1px solid #93c5fd",borderRadius:7,fontSize:14}}>
+                  {catsGet().map(c=><option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:22}}>
+              <button onClick={()=>setInlineEdit(null)}
+                style={{padding:"9px 20px",border:`1px solid ${C.border}`,borderRadius:7,background:"#f8fafc",color:C.muted,fontWeight:600,fontSize:13,cursor:"pointer"}}>
+                ✕ Annulla
+              </button>
+              <button onClick={saveRule}
+                style={{padding:"9px 24px",border:"none",borderRadius:7,background:"#2563eb",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer"}}>
+                ✅ Salva
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </Box>
+  );
+}
+
+
 function CategorieTab({txs,excInvest,selYear,selMonth,selYears,selMonths,onRuleAdded}){
   const [selCats,setSelCats]=useState([]); // [] = nessuna selezione
   useEffect(()=>{
@@ -1329,7 +1480,7 @@ function CategorieTab({txs,excInvest,selYear,selMonth,selYears,selMonths,onRuleA
                   )}>
                 {[...catData].reverse().map((_,i)=>{
                   const name=[...catData].reverse()[i].name;
-                  return<Cell key={i} fill={PASTEL[(catData.length-1-i)%PASTEL.length]} opacity={selCats.length>0&&!selCats.includes(name)?0.3:1}/>;
+                  return<Cell key={i} fill={getCatColor(name)} stroke="rgba(0,0,0,0.12)" strokeWidth={0.5} opacity={selCats.length>0&&!selCats.includes(name)?0.3:1}/>;
                 })}
               </Bar>
             </BarChart>
@@ -1420,13 +1571,8 @@ function CategorieTab({txs,excInvest,selYear,selMonth,selYears,selMonths,onRuleA
 
       {/* Tabella record */}
       {tableRows.length>0&&(
-        <Box title={`📋 Transazioni${selCats.length>0?": "+(selCats.length===1?selCats[0]:selCats.length+" categorie"):" — tutte"} (${tableRows.length} record)`}>
-          <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"center",flexWrap:"wrap"}}>
-            <span style={{fontSize:11,color:C.muted,fontWeight:600}}>Ordina per:</span>
-            <button onClick={()=>setSortBy("date")} style={{background:sortBy==="date"?"#60a5fa":"transparent",color:sortBy==="date"?"#fff":C.muted,border:`1px solid ${sortBy==="date"?"#60a5fa":C.border}`,borderRadius:5,padding:"3px 10px",cursor:"pointer",fontSize:11}}>Data ↓</button>
-            <button onClick={()=>setSortBy("amount")} style={{background:sortBy==="amount"?"#60a5fa":"transparent",color:sortBy==="amount"?"#fff":C.muted,border:`1px solid ${sortBy==="amount"?"#60a5fa":C.border}`,borderRadius:5,padding:"3px 10px",cursor:"pointer",fontSize:11}}>Importo ↓</button>
-            <span style={{marginLeft:"auto",fontSize:11,color:C.faint}}>Totale: <strong style={{color:C.text}}>{fmt(tableRows.reduce((s,t)=>s+t.uscita,0))}</strong></span>
-          </div>
+        <div>
+          <div style={{display:"flex",gap:8,marginBottom:0}}/>
             <div style={{overflowX:"auto",WebkitOverflowScrolling:"touch"}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:13,tableLayout:"auto",minWidth:700}}>
               <thead>
@@ -1466,7 +1612,7 @@ function CategorieTab({txs,excInvest,selYear,selMonth,selYears,selMonths,onRuleA
     {/* Modal overlay per creazione regola */}
     {inlineEdit&&(
       <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}
-        onClick={()=>setInlineEdit(null)}
+        onMouseDown={e=>{if(e.target===e.currentTarget)setInlineEdit(null);}}
         onKeyDown={e=>e.key==="Escape"&&setInlineEdit(null)}>
         <div style={{background:"#fff",borderRadius:14,padding:28,maxWidth:520,width:"100%",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}
           onClick={e=>e.stopPropagation()}>
@@ -1600,7 +1746,7 @@ function VenditoriTab({allTxs,filteredTxs,selYear,selMonth,selYears,selMonths}){
                 label={{position:"right",formatter:v=>fmt(v),fontSize:12,fill:C.muted,fontWeight:600}}>
                 {[...vendors].reverse().map((_,i)=>{
                   const nm=[...vendors].reverse()[i]?.name;
-                  return<Cell key={i} fill={nm===selVendor?"#60a5fa":PASTEL[i%PASTEL.length]} opacity={selVendor&&nm!==selVendor?0.4:1}/>;
+                  return<Cell key={i} fill={nm===selVendor?"#60a5fa":getCatColor(nm||"")} opacity={selVendor&&nm!==selVendor?0.4:1}/>;
                 })}
               </Bar>
             </BarChart>
@@ -1672,40 +1818,15 @@ function VenditoriTab({allTxs,filteredTxs,selYear,selMonth,selYears,selMonths}){
         </Box>
       </div>
 
-      {/* Lista transazioni venditore selezionato */}
-      {selVendor&&(()=>{
-        const rows=[...filteredTxs.filter(t=>t.uscita>0&&(t.vendor||extractVendor(t.causale,t.descrizione))===selVendor)]
-          .sort((a,b)=>b.date.localeCompare(a.date));
-        if(!rows.length)return null;
-        return(
-          <Box title={`📋 Transazioni: ${selVendor} (${rows.length} record)`}>
-            <div style={{overflowX:"auto",WebkitOverflowScrolling:"touch"}}>
-              <table style={{width:"100%",borderCollapse:"collapse",fontSize:13,tableLayout:"auto",minWidth:600}}>
-                <thead>
-                  <tr style={{borderBottom:`2px solid ${C.border}`,background:"#f8fafc"}}>
-                    {["Categoria","Data","Descrizione","Importo"].map(h=>(
-                      <th key={h} style={{textAlign:h==="Importo"?"right":"left",padding:"7px 8px",color:C.muted,fontSize:10,fontWeight:700,textTransform:"uppercase",whiteSpace:"nowrap"}}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((t,i)=>(
-                    <tr key={i} style={{borderBottom:`1px solid ${C.border}`}}
-                      onMouseEnter={e=>e.currentTarget.style.background="#f8fafc"}
-                      onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                      <td style={{padding:"5px 8px"}}>
-                        <span style={{background:"#eff6ff",color:"#3b82f6",borderRadius:4,padding:"2px 7px",fontSize:11,fontWeight:600,whiteSpace:"nowrap"}}>{t.categoria}</span>
-                      </td>
-                      <td style={{padding:"5px 8px",color:C.muted,whiteSpace:"nowrap",fontSize:12}}>{t.date}</td>
-                      <td style={{padding:"5px 8px",color:"#334155",fontSize:11,maxWidth:320,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={t.descrizione}>{t.descrizione}</td>
-                      <td style={{padding:"5px 8px",color:"#ef4444",fontWeight:700,whiteSpace:"nowrap",textAlign:"right",fontSize:12}}>{fmt(t.uscita)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </Box>
-        );
+      {/* Lista transazioni venditore */}
+      {(()=>{
+        const vendRows=selVendor
+          ?filteredTxs.filter(t=>t.uscita>0&&(t.vendor||extractVendor(t.causale,t.descrizione))===selVendor)
+          :filteredTxs.filter(t=>t.uscita>0);
+        if(!vendRows.length)return null;
+        return <TransactionTable rows={vendRows}
+          title={`📋 Transazioni${selVendor?": "+selVendor:" — tutti"} (${vendRows.length} record)`}
+          onRuleAdded={()=>{}}/>;
       })()}
     </div>
   );
@@ -2069,14 +2190,30 @@ Tutte le transazioni verranno spostate in "Altro".`))return;
 
       {/* ── MAPPA AUTOMATICA ── */}
       {activeSection==="builtins"&&(<>
-      <Box title="Mappa automatica integrata (sola lettura — 50 catene)">
-        <p style={{fontSize:12,color:C.muted,marginBottom:10}}>Queste regole sono applicate automaticamente dopo le tue regole personalizzate.</p>
-        <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-          {CHAIN_MAP.map(([,nm,cat],i)=>(nm&&
-            <span key={i} style={{background:"#f1f5f9",border:`1px solid ${C.border}`,borderRadius:20,padding:"3px 10px",fontSize:11,color:C.muted}}>
-              {nm} <span style={{color:"#60a5fa"}}>→ {cat}</span>
-            </span>
-          ))}
+      <Box title={`Mappa automatica integrata (${CHAIN_MAP.filter(([,nm])=>nm).length} brand — sola lettura)`}>
+        <p style={{fontSize:12,color:C.muted,marginBottom:12}}>Applicate automaticamente dopo le tue regole personalizzate. Non modificabili qui.</p>
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+            <thead>
+              <tr style={{borderBottom:`2px solid ${C.border}`,background:"#f8fafc"}}>
+                {["Brand/Pattern","Categoria"].map(h=>(
+                  <th key={h} style={{textAlign:"left",padding:"7px 10px",color:C.muted,fontSize:10,fontWeight:700,textTransform:"uppercase"}}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {CHAIN_MAP.filter(([,nm])=>nm).map(([rx,nm,cat],i)=>(
+                <tr key={i} style={{borderBottom:`1px solid ${C.border}`}}
+                  onMouseEnter={e=>e.currentTarget.style.background="#f8fafc"}
+                  onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                  <td style={{padding:"6px 10px",fontWeight:600,color:"#1e293b"}}>{nm}</td>
+                  <td style={{padding:"6px 10px"}}>
+                    <span style={{background:"#eff6ff",color:"#3b82f6",borderRadius:4,padding:"2px 8px",fontSize:11,fontWeight:600}}>{cat}</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </Box>
       </>)}
@@ -2162,7 +2299,7 @@ function Setup({onSave}){
 // ── MAIN ──────────────────────────────────────────────────────────────────────
 // ── METODI DI PAGAMENTO TAB ───────────────────────────────────────────────────
 const METODI_COLORS={
-  "Bancomat":"#93c5fd","Carta di Credito":"#c4b5fd","Bonifico":"#6ee7b7","Domiciliazione SDD":"#fcd34d",
+  "Carta di Debito":"#93c5fd","Carta di Credito":"#c4b5fd","Bonifico":"#6ee7b7","Domiciliazione SDD":"#fcd34d",
   "MAV/RAV":"#fdba74","F24":"#f87171","Prelievo ATM":"#c4b5fd",
   "Giroconto":"#a5f3fc","Spese Bancarie":"#fca5a5","Stipendio":"#bbf7d0","Altro":"#cbd5e1"
 };
@@ -2279,36 +2416,15 @@ function EntrateTab({txs, allTxs, selYear, selMonth}){
       </div>
 
       {/* Tabella */}
-      {selCat&&tableRows.length>0&&(
-        <Box title={`📋 Entrate: ${selCat} (${tableRows.length} record)`}>
-          <div style={{overflowX:"auto"}}>
-            <table style={{width:"100%",borderCollapse:"collapse",fontSize:13,tableLayout:"auto",minWidth:500}}>
-              <thead>
-                <tr style={{borderBottom:`2px solid ${C.border}`,background:"#f8fafc"}}>
-                  {["Cat.","Data","Fonte","Descrizione","Importo"].map(h=>(
-                    <th key={h} style={{textAlign:h==="Importo"?"right":"left",padding:"7px 8px",color:C.muted,fontSize:10,fontWeight:700,textTransform:"uppercase",whiteSpace:"nowrap",overflow:"hidden"}}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {tableRows.map((t,i)=>(
-                  <tr key={i} style={{borderBottom:`1px solid ${C.border}`}}
-                    onMouseEnter={e=>e.currentTarget.style.background="#f8fafc"}
-                    onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                    <td style={{padding:"5px 6px"}}>
-                      <span style={{background:"#f0fdf4",color:"#16a34a",borderRadius:4,padding:"2px 6px",fontSize:10,fontWeight:600,whiteSpace:"nowrap"}}>{t.categoria}</span>
-                    </td>
-                    <td style={{padding:"5px 6px",color:C.muted,whiteSpace:"nowrap",fontSize:12}}>{t.date}</td>
-                    <td style={{padding:"5px 6px",color:C.text,fontWeight:600,fontSize:12,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:140}}>{t.vendor||"—"}</td>
-                    <td style={{padding:"5px 6px",color:"#475569",fontSize:11,wordBreak:"break-word",minWidth:200}} title={t.descrizione}>{t.descrizione}</td>
-                    <td style={{padding:"5px 6px",color:"#10b981",fontWeight:700,whiteSpace:"nowrap",textAlign:"right",fontSize:12}}>{"+"+fmt(t.entrata)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Box>
-      )}
+      {(()=>{
+        const entrRows=selCat
+          ?txs.filter(t=>t.entrata>0&&t.categoria===selCat&&!NEUTRAL_CATS.includes(t.categoria))
+          :txs.filter(t=>t.entrata>0&&!NEUTRAL_CATS.includes(t.categoria));
+        if(!entrRows.length)return null;
+        return <TransactionTable rows={entrRows}
+          title={`📋 Entrate${selCat?": "+selCat:" — tutte"} (${entrRows.length} record)`}
+          onRuleAdded={()=>{}}/>;
+      })()}
     </div>
   );
 }
@@ -2404,44 +2520,15 @@ function MetodiTab({txs,selYear,selMonth}){
       )}
 
       {/* Lista transazioni */}
-      {selMetodo&&tableRows.length>0&&(
-        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:16}}>
-          <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"center",flexWrap:"wrap"}}>
-            <h3 style={{margin:0,fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:1.2}}>
-              📋 {selMetodo} — {tableRows.length} transazioni
-            </h3>
-            <button onClick={()=>setSortBy("date")} style={{background:sortBy==="date"?"#60a5fa":"transparent",color:sortBy==="date"?"#fff":C.muted,border:`1px solid ${sortBy==="date"?"#60a5fa":C.border}`,borderRadius:5,padding:"3px 10px",cursor:"pointer",fontSize:11}}>Data ↓</button>
-            <button onClick={()=>setSortBy("amount")} style={{background:sortBy==="amount"?"#60a5fa":"transparent",color:sortBy==="amount"?"#fff":C.muted,border:`1px solid ${sortBy==="amount"?"#60a5fa":C.border}`,borderRadius:5,padding:"3px 10px",cursor:"pointer",fontSize:11}}>Importo ↓</button>
-            <span style={{marginLeft:"auto",fontSize:11,color:C.faint}}>Totale: <strong>{fmt(tableRows.reduce((s,t)=>s+t.uscita,0))}</strong></span>
-          </div>
-          <div style={{overflowX:"auto"}}>
-            <table style={{width:"100%",borderCollapse:"collapse",fontSize:13,tableLayout:"auto",minWidth:600}}>
-              <thead>
-                <tr style={{borderBottom:`2px solid ${C.border}`,background:"#f8fafc"}}>
-                  {["Data","Categoria","Venditore","Descrizione","Importo"].map(h=>(
-                    <th key={h} style={{textAlign:h==="Importo"?"right":"left",padding:"7px 8px",color:C.muted,fontSize:10,fontWeight:700,textTransform:"uppercase"}}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {tableRows.map((t,i)=>(
-                  <tr key={i} style={{borderBottom:`1px solid ${C.border}`}}
-                    onMouseEnter={e=>e.currentTarget.style.background="#f8fafc"}
-                    onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                    <td style={{padding:"5px 8px",color:C.muted,whiteSpace:"nowrap",fontSize:12}}>{t.date}</td>
-                    <td style={{padding:"5px 8px"}}>
-                      <span style={{background:"#eff6ff",color:"#3b82f6",borderRadius:4,padding:"2px 7px",fontSize:11,fontWeight:600}}>{t.categoria}</span>
-                    </td>
-                    <td style={{padding:"5px 8px",color:C.text,fontWeight:600,fontSize:12,whiteSpace:"nowrap"}}>{t.vendor||"—"}</td>
-                    <td style={{padding:"5px 8px",color:"#475569",fontSize:11,wordBreak:"break-word",minWidth:200}} title={t.descrizione}>{t.descrizione}</td>
-                    <td style={{padding:"5px 8px",color:"#ef4444",fontWeight:700,textAlign:"right",fontSize:12,whiteSpace:"nowrap"}}>{fmt(t.uscita)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+      {(()=>{
+        const metRows=selMetodo
+          ?txs.filter(t=>t.uscita>0&&(t.metodo||"Altro")===selMetodo)
+          :txs.filter(t=>t.uscita>0);
+        if(!metRows.length)return null;
+        return <TransactionTable rows={metRows}
+          title={`📋 Transazioni${selMetodo?": "+selMetodo:" — tutti"} (${metRows.length} record)`}
+          onRuleAdded={()=>{}}/>;
+      })()}
     </div>
   );
 }
@@ -2462,7 +2549,9 @@ function App(){
   const [ready,setReady]=useState(false);
   const [rulesRev,setRulesRev]=useState(0);
   const [modal,setModal]=useState(null);
-  const [balanceSaldos,setBalanceSaldos]=useState({}); // saldi iniziali/finali dai CSV // {title,message,danger,onConfirm,pendingFiles,handler}
+  const [balanceSaldos,setBalanceSaldos]=useState(()=>{
+    try{const d=localStorage.getItem("balanceSaldos");return d?JSON.parse(d):{};}catch{return{};}
+  }); // saldi iniziali/finali dai CSV — persistiti in localStorage // {title,message,danger,onConfirm,pendingFiles,handler}
   const pendingFilesRef=React.useRef(null); // bumped when rules change to trigger re-parse
 
   useEffect(()=>{
