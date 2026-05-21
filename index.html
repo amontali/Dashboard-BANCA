@@ -357,7 +357,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v8.9.9 · 21 mag 2026";
+const VERSION="v8.9.11 · 21 mag 2026";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",minimumFractionDigits:0,maximumFractionDigits:0,useGrouping:true}).format(n||0);
@@ -484,7 +484,7 @@ function extractAndClassify(causale,desc,userRules){
           return{vendor:normalizeVendorName(after)||titleCase(after),categoria:applyAlias("Altro")};
         }
       }
-      return{vendor:"PayPal",categoria:applyAlias("Altro")};
+      return{vendor:"PayPal",categoria:applyAlias("Intermediari di Pagamento")};
     }
   }
   const vendorName=extracted?normalizeVendorName(extracted.raw):null;
@@ -1446,7 +1446,7 @@ function CategorieTab({txs,excInvest,selYear,selMonth,selYears,selMonths,onRuleA
                     </td>
                     <td style={{padding:"5px 6px",color:C.muted,whiteSpace:"nowrap",fontSize:12,overflow:"hidden"}}>{t.date}</td>
                     <td style={{padding:"5px 6px",color:C.text,fontWeight:600,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.vendor||"—"}</td>
-                    <td style={{padding:"5px 6px",color:C.faint,fontSize:11,lineHeight:1.4,wordBreak:"break-word",minWidth:200}} title={t.descrizione}>{t.descrizione}</td>
+                    <td style={{padding:"5px 6px",color:"#334155",fontSize:11,lineHeight:1.4,wordBreak:"break-word",minWidth:200}} title={t.descrizione}>{t.descrizione}</td>
                     <td style={{padding:"5px 6px",color:"#ef4444",fontWeight:700,whiteSpace:"nowrap",textAlign:"right",fontSize:12}}>{fmt(t.uscita)}</td>
                   </tr>
                 ))}
@@ -1692,7 +1692,7 @@ function VenditoriTab({allTxs,filteredTxs,selYear,selMonth,selYears,selMonths}){
                         <span style={{background:"#eff6ff",color:"#3b82f6",borderRadius:4,padding:"2px 7px",fontSize:11,fontWeight:600,whiteSpace:"nowrap"}}>{t.categoria}</span>
                       </td>
                       <td style={{padding:"5px 8px",color:C.muted,whiteSpace:"nowrap",fontSize:12}}>{t.date}</td>
-                      <td style={{padding:"5px 8px",color:C.faint,fontSize:11,maxWidth:320,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={t.descrizione}>{t.descrizione}</td>
+                      <td style={{padding:"5px 8px",color:"#334155",fontSize:11,maxWidth:320,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={t.descrizione}>{t.descrizione}</td>
                       <td style={{padding:"5px 8px",color:"#ef4444",fontWeight:700,whiteSpace:"nowrap",textAlign:"right",fontSize:12}}>{fmt(t.uscita)}</td>
                     </tr>
                   ))}
@@ -2295,7 +2295,7 @@ function EntrateTab({txs, allTxs, selYear, selMonth}){
                     </td>
                     <td style={{padding:"5px 6px",color:C.muted,whiteSpace:"nowrap",fontSize:12}}>{t.date}</td>
                     <td style={{padding:"5px 6px",color:C.text,fontWeight:600,fontSize:12,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:140}}>{t.vendor||"—"}</td>
-                    <td style={{padding:"5px 6px",color:C.faint,fontSize:11,wordBreak:"break-word",minWidth:200}} title={t.descrizione}>{t.descrizione}</td>
+                    <td style={{padding:"5px 6px",color:"#475569",fontSize:11,wordBreak:"break-word",minWidth:200}} title={t.descrizione}>{t.descrizione}</td>
                     <td style={{padding:"5px 6px",color:"#10b981",fontWeight:700,whiteSpace:"nowrap",textAlign:"right",fontSize:12}}>{"+"+fmt(t.entrata)}</td>
                   </tr>
                 ))}
@@ -2428,7 +2428,7 @@ function MetodiTab({txs,selYear,selMonth}){
                       <span style={{background:"#eff6ff",color:"#3b82f6",borderRadius:4,padding:"2px 7px",fontSize:11,fontWeight:600}}>{t.categoria}</span>
                     </td>
                     <td style={{padding:"5px 8px",color:C.text,fontWeight:600,fontSize:12,whiteSpace:"nowrap"}}>{t.vendor||"—"}</td>
-                    <td style={{padding:"5px 8px",color:C.faint,fontSize:11,wordBreak:"break-word",minWidth:200}} title={t.descrizione}>{t.descrizione}</td>
+                    <td style={{padding:"5px 8px",color:"#475569",fontSize:11,wordBreak:"break-word",minWidth:200}} title={t.descrizione}>{t.descrizione}</td>
                     <td style={{padding:"5px 8px",color:"#ef4444",fontWeight:700,textAlign:"right",fontSize:12,whiteSpace:"nowrap"}}>{fmt(t.uscita)}</td>
                   </tr>
                 ))}
