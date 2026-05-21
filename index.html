@@ -373,7 +373,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v9.2.4 · 21 mag 2026";
+const VERSION="v9.3 · 21 mag 2026";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",minimumFractionDigits:0,maximumFractionDigits:0,useGrouping:true}).format(n||0);
@@ -871,6 +871,115 @@ function Sidebar({years,selYears,selMonths,toggleYear,toggleMonth}){
 
 // ── TAB COMPONENTS ────────────────────────────────────────────────────────────
 
+// ── WATERFALL CHART ───────────────────────────────────────────────────────────
+function WaterfallChart({txs, excInvest}){
+  const data = useMemo(()=>{
+    const agg={};
+    const filtered=excInvest?txs.filter(t=>!NEUTRAL_CATS.includes(t.categoria)):txs;
+    filtered.forEach(t=>{
+      if(!agg[t.year])agg[t.year]={year:t.year,entrate:0,uscite:0};
+      agg[t.year].entrate+=t.entrata;
+      agg[t.year].uscite+=t.uscita;
+    });
+    const years=Object.values(agg).sort((a,b)=>a.year-b.year);
+    let cumulo=0;
+    return years.map(y=>{
+      const delta=y.entrate-y.uscite;
+      const start=cumulo;
+      cumulo+=delta;
+      return{
+        year:y.year,
+        delta:Math.round(delta),
+        start:Math.round(start),
+        end:Math.round(cumulo),
+        positive:delta>=0
+      };
+    });
+  },[txs,excInvest]);
+
+  // Calcola range asse Y
+  const minVal=Math.min(0,...data.map(d=>Math.min(d.start,d.end)));
+  const maxVal=Math.max(0,...data.map(d=>Math.max(d.start,d.end)));
+
+  // Custom bar shape per waterfall
+  const WaterfallBar=(props)=>{
+    const {x,y,width,height,payload}=props;
+    if(!payload)return null;
+    const fill=payload.positive?"#6ee7b7":"#fca5a5";
+    const stroke=payload.positive?"rgba(0,80,40,0.2)":"rgba(120,0,0,0.2)";
+    return(
+      <g>
+        <rect x={x} y={y} width={width} height={Math.abs(height)||1}
+          fill={fill} stroke={stroke} strokeWidth={0.5} rx={2}/>
+        <text x={x+width/2} y={payload.positive?y-4:y+Math.abs(height)+12}
+          textAnchor="middle" fill="#475569" fontSize={10} fontWeight={600}>
+          {payload.positive?"+":""}{fmtK(payload.delta)}
+        </text>
+      </g>
+    );
+  };
+
+  // Converti in formato Recharts: spacer trasparente + barra colorata
+  const chartData=data.map(d=>({
+    year:d.year,
+    spacer:d.positive?d.start:d.end,
+    value:Math.abs(d.delta),
+    positive:d.positive,
+    delta:d.delta,
+    end:d.end
+  }));
+
+  return(
+    <Box title="💧 Waterfall — Evoluzione saldo cumulativo per anno">
+      <p style={{fontSize:11,color:C.muted,marginBottom:10}}>
+        Ogni barra mostra il delta entrate-uscite annuale. Verde = hai risparmiato · Rosso = hai speso di più. La linea tratteggiata è il saldo cumulativo.
+      </p>
+      <ResponsiveContainer width="100%" height={280}>
+        <ComposedChart data={chartData} margin={{top:20,right:20,bottom:5,left:10}}>
+          <CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false}/>
+          <XAxis dataKey="year" tick={{fill:C.muted,fontSize:11}}/>
+          <YAxis tickFormatter={fmtK} tick={{fill:C.muted,fontSize:10}} width={55}/>
+          <Tooltip content={({active,payload,label})=>{
+            if(!active||!payload?.length)return null;
+            const d=data.find(x=>x.year===label);
+            if(!d)return null;
+            return(
+              <div style={{background:"#1e293b",borderRadius:8,padding:"10px 14px",fontSize:12}}>
+                <div style={{color:"#94a3b8",fontWeight:600,marginBottom:4}}>{label}</div>
+                <div style={{color:d.positive?"#6ee7b7":"#fca5a5",fontWeight:700}}>
+                  Delta: {d.positive?"+":""}{fmt(d.delta)}
+                </div>
+                <div style={{color:"#60a5fa",marginTop:2}}>Saldo cumulativo: {fmt(d.end)}</div>
+              </div>
+            );
+          }}/>
+          {/* Spacer trasparente */}
+          <Bar dataKey="spacer" stackId="wf" fill="transparent" stroke="none"/>
+          {/* Barra colorata */}
+          <Bar dataKey="value" stackId="wf" radius={[3,3,0,0]}
+            label={{position:"top",formatter:(v,entry)=>{
+              const d=entry?.payload;
+              if(!d)return"";
+              return(d.positive?"+":"-")+fmtK(d.value);
+            },fontSize:10,fill:"#475569",fontWeight:600}}>
+            {chartData.map((d,i)=>(
+              <Cell key={i}
+                fill={d.positive?"#6ee7b7":"#fca5a5"}
+                stroke={d.positive?"rgba(0,80,40,0.2)":"rgba(120,0,0,0.2)"}
+                strokeWidth={0.5}/>
+            ))}
+          </Bar>
+          {/* Linea saldo cumulativo */}
+          <Line type="monotone" dataKey="end" stroke="#60a5fa" strokeWidth={2}
+            strokeDasharray="5 3" dot={{fill:"#60a5fa",r:3}} activeDot={{r:5}}
+            name="Saldo cumulativo"/>
+        </ComposedChart>
+      </ResponsiveContainer>
+    </Box>
+  );
+}
+
+
 function PanoramicaTab({allTxs,filteredTxs,selYears,selYear,selMonth,excInvest,balanceSaldos}){
   // selYears = array, selYear = compat alias (null if multi-year)
   // Quando anno selezionato: usa i dati filtrati; altrimenti tutto lo storico
@@ -925,6 +1034,10 @@ function PanoramicaTab({allTxs,filteredTxs,selYears,selYear,selMonth,excInvest,b
           </ResponsiveContainer>
         </Box>
       </div>
+      {/* Waterfall — mostrato solo in vista multi-anno o tutto */}
+      {selYears.length===0&&(
+        <WaterfallChart txs={displayTxs} excInvest={excInvest}/>
+      )}
     </div>
   );
 }
