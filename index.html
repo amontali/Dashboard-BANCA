@@ -371,7 +371,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v9.1 · 21 mag 2026";
+const VERSION="v9.1.1 · 21 mag 2026";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",minimumFractionDigits:0,maximumFractionDigits:0,useGrouping:true}).format(n||0);
@@ -2508,8 +2508,11 @@ const GENERIC_VENDORS = [
 ];
 
 function needsReview(t){
-  if(!t.uscita||t.uscita===0)return false; // solo uscite
+  if(!t.uscita||t.uscita===0)return false;
   if(NEUTRAL_CATS.includes(t.categoria))return false;
+  if(t.categoria==="Prelievi ATM")return false; // già categorizzato correttamente
+  if(t.categoria==="Tasse")return false; // F24 — già chiaro
+  if(t.categoria==="Spese Bancarie")return false;
   if(t.categoria==="Altro")return true;
   const v=(t.vendor||"").toLowerCase().trim();
   if(GENERIC_VENDORS.includes(v))return true;
@@ -2521,6 +2524,32 @@ function RevisioneTab({txs, onRuleAdded}){
   const [ignored,setIgnored]=useState(()=>{
     try{return new Set(JSON.parse(localStorage.getItem("revisione_ignored")||"[]"));}catch{return new Set();}
   });
+  const [inlineEdit,setInlineEdit]=useState(null);
+
+  useEffect(()=>{
+    const h=e=>{if(e.key==="Escape")setInlineEdit(null);};
+    window.addEventListener("keydown",h);
+    return()=>window.removeEventListener("keydown",h);
+  },[]);
+
+  function saveRule(){
+    const r=[...rulesGet()];
+    if(inlineEdit?.pattern?.trim()){
+      r.push({id:Date.now().toString(),pattern:inlineEdit.pattern.trim(),name:inlineEdit.name.trim()||null,category:inlineEdit.categoria});
+      rulesSave(r);
+    }
+    if(inlineEdit?._dateChanged&&inlineEdit?.date){
+      const [yyyy,mm]=[inlineEdit.date.slice(0,4),inlineEdit.date.slice(5,7)];
+      const updated=lsGet().map(t2=>{
+        const key=t2.date+"|"+t2.uscita+"|"+t2.causale;
+        if(key===inlineEdit._key)return{...t2,date:inlineEdit.date,ym:`${yyyy}-${mm}`,year:+yyyy,month:+mm};
+        return t2;
+      });
+      lsSave(updated);
+    }
+    setInlineEdit(null);
+    onRuleAdded&&onRuleAdded();
+  }
 
   function ignore(key){
     setIgnored(prev=>{
@@ -2599,7 +2628,7 @@ function RevisioneTab({txs, onRuleAdded}){
                       <td style={{padding:"5px 6px",color:"#ef4444",fontWeight:700,whiteSpace:"nowrap",textAlign:"right",fontSize:12}}>{fmt(t.uscita)}</td>
                       <td style={{padding:"5px 6px",whiteSpace:"nowrap"}}>
                         <div style={{display:"flex",gap:4}}>
-                          <button onClick={()=>{/* opens inline edit via parent onRuleAdded mechanism */}}
+                          <button onClick={()=>setInlineEdit({pattern:t.vendor||"",name:t.vendor||"",categoria:t.categoria,date:t.date,_key:key,_dateChanged:false})}
                             style={{background:"#eff6ff",color:"#3b82f6",border:"1px solid #bfdbfe",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11}}>✏️</button>
                           <button onClick={()=>ignore(key)}
                             style={{background:"#f1f5f9",color:C.muted,border:`1px solid ${C.border}`,borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11}}>✓</button>
@@ -2614,6 +2643,65 @@ function RevisioneTab({txs, onRuleAdded}){
         </Box>
       )}
     </div>
+
+    {/* Modal modifica */}
+    {inlineEdit&&(
+      <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}
+        onMouseDown={e=>{if(e.target===e.currentTarget)setInlineEdit(null);}}
+        onKeyDown={e=>e.key==="Escape"&&setInlineEdit(null)}>
+        <div style={{background:"#fff",borderRadius:14,padding:28,maxWidth:520,width:"100%",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}
+          onClick={e=>e.stopPropagation()}>
+          <div style={{fontSize:17,fontWeight:800,color:"#1e40af",marginBottom:18}}>✏️ Categorizza transazione</div>
+          <div style={{display:"flex",flexDirection:"column",gap:14}}>
+            <div style={{background:"#f8fafc",borderRadius:8,padding:"10px 12px",fontSize:12,color:C.muted}}>
+              <strong style={{color:C.text}}>{inlineEdit.name||inlineEdit.pattern}</strong><br/>
+              <span style={{fontSize:11}}>{inlineEdit.date}</span>
+            </div>
+            <div style={{background:"#fffbeb",border:"1px solid #fde68a",borderRadius:8,padding:"10px 12px"}}>
+              <div style={{fontSize:11,color:"#92400e",fontWeight:700,marginBottom:5}}>📅 DATA — effetto solo su questa transazione</div>
+              <input type="date" value={inlineEdit.date||""}
+                onChange={e=>setInlineEdit({...inlineEdit,date:e.target.value,_dateChanged:true})}
+                style={{width:"100%",padding:"9px 12px",border:`1px solid ${inlineEdit._dateChanged?"#f59e0b":"#fde68a"}`,borderRadius:7,fontSize:14,boxSizing:"border-box"}}/>
+            </div>
+            <div style={{height:1,background:"#e2e8f0"}}/>
+            <div style={{fontSize:11,color:"#3b82f6",fontWeight:700}}>📋 REGOLA — si applica a tutte le transazioni con questo pattern</div>
+            <div>
+              <div style={{fontSize:11,color:C.muted,fontWeight:700,marginBottom:5}}>PATTERN</div>
+              <input autoFocus value={inlineEdit.pattern}
+                onChange={e=>setInlineEdit({...inlineEdit,pattern:e.target.value})}
+                onKeyDown={e=>e.key==="Enter"&&saveRule()}
+                placeholder="es: cond alessandrini, rdm srl..."
+                style={{width:"100%",padding:"9px 12px",border:"1px solid #93c5fd",borderRadius:7,fontSize:14,boxSizing:"border-box"}}/>
+            </div>
+            <div>
+              <div style={{fontSize:11,color:C.muted,fontWeight:700,marginBottom:5}}>NOME VISUALIZZATO (opz.)</div>
+              <input value={inlineEdit.name}
+                onChange={e=>setInlineEdit({...inlineEdit,name:e.target.value})}
+                onKeyDown={e=>e.key==="Enter"&&saveRule()}
+                style={{width:"100%",padding:"9px 12px",border:"1px solid #93c5fd",borderRadius:7,fontSize:14,boxSizing:"border-box"}}/>
+            </div>
+            <div>
+              <div style={{fontSize:11,color:C.muted,fontWeight:700,marginBottom:5}}>CATEGORIA</div>
+              <select value={inlineEdit.categoria}
+                onChange={e=>setInlineEdit({...inlineEdit,categoria:e.target.value})}
+                style={{width:"100%",padding:"9px 12px",border:"1px solid #93c5fd",borderRadius:7,fontSize:14}}>
+                {catsGet().map(c=><option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+          </div>
+          <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:22}}>
+            <button onClick={()=>setInlineEdit(null)}
+              style={{padding:"9px 20px",border:`1px solid ${C.border}`,borderRadius:7,background:"#f8fafc",color:C.muted,fontWeight:600,fontSize:13,cursor:"pointer"}}>
+              ✕ Annulla
+            </button>
+            <button onClick={saveRule}
+              style={{padding:"9px 24px",border:"none",borderRadius:7,background:"#2563eb",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer"}}>
+              ✅ Salva e categorizza
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
   );
 }
 
