@@ -394,7 +394,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v9.7 · 22 mag 2026";
+const VERSION="v9.7.1 · 22 mag 2026";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",minimumFractionDigits:0,maximumFractionDigits:0,useGrouping:true}).format(n||0);
@@ -1346,7 +1346,7 @@ function SunburstChart({txs, excInvest, selCats, toggleCat}) {
     const total = slices.reduce((s,d)=>s+d.value,0)||1;
     const pie = d3.pie().value(d=>d.value).sort(null).padAngle(0.012);
     const arcs = pie(slices);
-    const inner = R*0.50, outer = R*0.92;
+    const inner = R*0.34, outer = R*0.92;
     const arc = d3.arc().innerRadius(inner).outerRadius(outer).cornerRadius(3);
 
     svg.selectAll("path.slice")
@@ -1370,26 +1370,68 @@ function SunburstChart({txs, excInvest, selCats, toggleCat}) {
         else if(path.length===0){ toggleCat(d.data.name, event.ctrlKey||event.metaKey); }
       });
 
-    // Etichette sulle fette larghe
-    svg.selectAll("text.lbl")
-      .data(arcs.filter(d=>(d.endAngle-d.startAngle)>0.18)).join("text").attr("class","lbl")
+    // Etichette sulle fette larghe — a capo invece di troncare
+    function wrapLabel(name, maxChars){
+      if(name.length<=maxChars) return [name];
+      // preferisci split su " / "
+      const slash=name.indexOf(" / ");
+      if(slash>0 && slash<name.length-1) return [name.slice(0,slash), name.slice(slash+3)];
+      // altrimenti spezza sugli spazi accumulando righe entro maxChars (max 3 righe)
+      const words=name.split(" ");
+      const lines=[]; let cur="";
+      for(const w of words){
+        if((cur+" "+w).trim().length<=maxChars){ cur=(cur+" "+w).trim(); }
+        else { if(cur)lines.push(cur); cur=w; }
+      }
+      if(cur)lines.push(cur);
+      // se una singola parola è più lunga di maxChars, lasciala intera (no puntini)
+      return lines.slice(0,3);
+    }
+    const lblData = arcs.filter(d=>(d.endAngle-d.startAngle)>0.16);
+    const lblGroups = svg.selectAll("g.lbl")
+      .data(lblData).join("g").attr("class","lbl")
       .attr("transform", d=>{
         const a=(d.startAngle+d.endAngle)/2, r=(inner+outer)/2;
         const deg=a*180/Math.PI-90;
         return `rotate(${deg}) translate(${r},0) rotate(${a>Math.PI?180:0})`;
       })
-      .attr("text-anchor","middle").attr("dy","0.35em")
-      .attr("fill","#1e293b").attr("font-size", d=>(d.endAngle-d.startAngle)>0.5?13:11)
-      .attr("font-weight","700").attr("pointer-events","none")
-      .text(d=>{const n=d.data.name;return n.length>13?n.slice(0,12)+"…":n;});
+      .attr("pointer-events","none");
+    lblGroups.each(function(d){
+      const wide=(d.endAngle-d.startAngle)>0.5;
+      const fs = wide?13:11;
+      // più spazio radiale ora: consenti righe più lunghe sulle fette larghe
+      const maxChars = wide?13:10;
+      const lines = wrapLabel(d.data.name, maxChars);
+      const g=d3.select(this);
+      const lineH=fs+1;
+      const startY=-((lines.length-1)/2)*lineH;
+      lines.forEach((ln,i)=>{
+        g.append("text")
+          .attr("text-anchor","middle")
+          .attr("y", startY+i*lineH).attr("dy","0.35em")
+          .attr("fill","#1e293b").attr("font-size",fs).attr("font-weight","700")
+          .text(ln);
+      });
+    });
 
     // Centro: torna su al clic + totale del livello
     const center = svg.append("g").style("cursor", path.length>0?"pointer":"default")
       .on("click",()=>{ if(path.length>0) setPath(p=>p.slice(0,-1)); });
     center.append("circle").attr("r", inner-4).attr("fill","#fff").attr("opacity", path.length>0?0.01:0); // area cliccabile
-    center.append("text").attr("text-anchor","middle").attr("dy","-1.3em")
-      .attr("fill","#64748b").attr("font-size",10).attr("font-weight","700")
-      .text(level.centerLabel.length>16?level.centerLabel.slice(0,15)+"…":level.centerLabel);
+    // Etichetta centrale: a capo su 2 righe invece di troncare
+    (function(){
+      const lbl=level.centerLabel||"";
+      const lines=lbl.length<=18?[lbl]:(function(){
+        const words=lbl.split(" ");const out=[];let cur="";
+        for(const w of words){if((cur+" "+w).trim().length<=18){cur=(cur+" "+w).trim();}else{if(cur)out.push(cur);cur=w;}}
+        if(cur)out.push(cur);return out.slice(0,2);
+      })();
+      const baseDy=lines.length>1?-2.1:-1.3;
+      lines.forEach((ln,i)=>{
+        center.append("text").attr("text-anchor","middle").attr("dy",`${baseDy+i*1.05}em`)
+          .attr("fill","#64748b").attr("font-size",10).attr("font-weight","700").text(ln);
+      });
+    })();
     center.append("text").attr("text-anchor","middle").attr("dy","0.1em")
       .attr("fill","#1e293b").attr("font-size",18).attr("font-weight","800")
       .text(fmtK(level.centerVal));
