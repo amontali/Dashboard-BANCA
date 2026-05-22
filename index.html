@@ -394,7 +394,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v9.6 · 22 mag 2026";
+const VERSION="v9.7 · 22 mag 2026";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",minimumFractionDigits:0,maximumFractionDigits:0,useGrouping:true}).format(n||0);
@@ -505,6 +505,16 @@ function extractAndClassify(causale,desc,userRules){
   const rawText=(causale+" "+desc).toUpperCase();
   if(/PRELIEVO\s+CARTA|PRELIEVO\s+CONTANTE|PRELIEVO\s+BANCOMAT/.test(rawText)){
     return{vendor:"Prelievo contante",categoria:applyAlias("Prelievi ATM")};
+  }
+  // PRE-CHECK: Compravendita titoli / azioni → Investimenti PRIMA del match vendor.
+  // Necessario perché emittenti come ENEL, ENI, Intesa esistono anche come utenze/banche
+  // e verrebbero agganciati a Utenze/Altro dalla CHAIN_MAP prima di leggere la causale.
+  if(/COMPRAVENDITA TITOLI|ACQUISTO AZIONI|VENDITA AZIONI|ACQUISTO TITOLI|VENDITA TITOLI|ACQUISTO FONDI|VENDITA FONDI|SOTTOSCRIZIONE FONDI|NEGOZIAZIONE TITOLI|TRADING/.test(rawText)){
+    // estrai un nome titolo leggibile se presente dopo "azioni/titoli"
+    let nm="Compravendita Titoli";
+    const m=rawText.match(/(?:ACQUISTO|VENDITA)\s+(?:AZIONI|TITOLI)\s+([A-Z0-9 .&'-]{2,30})/);
+    if(m&&m[1])nm=titleCase(m[1].trim());
+    return{vendor:nm,categoria:applyAlias("📈 Investimenti")};
   }
   // 1. Estrai
   const extracted=extractRawVendor(causale,desc);
@@ -1264,49 +1274,56 @@ const SB_PALETTE = [
 function SunburstChart({txs, excInvest, selCats, toggleCat}) {
   const svgRef = React.useRef(null);
   const [tip, setTip] = React.useState(null);
+  // Navigazione drill-down: [] = macro, [macro] = categorie, [macro,cat] = venditori
+  const [path, setPath] = React.useState([]);
 
-  const buildData = React.useMemo(() => {
+  // Aggrega tutte le spese una volta, con macro/categoria/vendor
+  const agg = React.useMemo(() => {
     const filtered = txs.filter(t => t.uscita>0 && (!excInvest||!NEUTRAL_CATS.includes(t.categoria)));
-    const catMap = {};
+    const grandTotal = filtered.reduce((s,t)=>s+t.uscita,0);
+    // macro -> {total, cats:{cat -> {total, vendors:{v->val}}}}
+    const macroMap = {};
     filtered.forEach(t => {
-      if (!catMap[t.categoria]) catMap[t.categoria] = {total:0, vendors:{}};
-      catMap[t.categoria].total += t.uscita;
-      const v = t.vendor||"Altro";
-      catMap[t.categoria].vendors[v] = (catMap[t.categoria].vendors[v]||0)+t.uscita;
+      const mc = macroOf(t.categoria);
+      const cat = t.categoria;
+      const v = t.vendor || "Altro";
+      if(!macroMap[mc]) macroMap[mc] = {total:0, cats:{}};
+      macroMap[mc].total += t.uscita;
+      if(!macroMap[mc].cats[cat]) macroMap[mc].cats[cat] = {total:0, vendors:{}};
+      macroMap[mc].cats[cat].total += t.uscita;
+      macroMap[mc].cats[cat].vendors[v] = (macroMap[mc].cats[cat].vendors[v]||0) + t.uscita;
     });
-    const total = Object.values(catMap).reduce((s,v)=>s+v.total,0);
-    const sorted = Object.entries(catMap).sort((a,b)=>b[1].total-a[1].total);
-    const top5 = sorted.slice(0,5);
-    const rest = sorted.slice(5);
-    const altroTotal = rest.reduce((s,[,d])=>s+d.total,0);
-    // Intermediari: use payment instrument name as children (not vendors)
-    const INTERMEDIARI_INSTRUMENTS = ["PayPal","Carta di Credito","SumUp","Satispay","Stripe","Nexi","Klarna","Scalapay"];
-    const children = top5.map(([cat,d],i) => {
-      let vendorChildren;
-      if(cat==="Intermediari di Pagamento"){
-        // Group by instrument name
-        const instrMap={};
-        Object.entries(d.vendors).forEach(([v,val])=>{
-          const instr=INTERMEDIARI_INSTRUMENTS.find(x=>v.toLowerCase().includes(x.toLowerCase()))||"Altro";
-          instrMap[instr]=(instrMap[instr]||0)+val;
-        });
-        vendorChildren=Object.entries(instrMap).sort((a,b)=>b[1]-a[1]).map(([v,val])=>({name:v,value:val,isInstrument:true}));
-      } else {
-        const topVendors = Object.entries(d.vendors).sort((a,b)=>b[1]-a[1]).slice(0,3);
-        const vendorSum = topVendors.reduce((s,[,v])=>s+v,0);
-        const vendorAltro = d.total - vendorSum;
-        vendorChildren = topVendors.map(([v,val])=>({name:v,value:val}));
-        if(vendorAltro>0) vendorChildren.push({name:"Altri",value:vendorAltro});
-      }
-      return {name:cat, color:SB_PALETTE[i], total:d.total, pct:Math.round(d.total/total*100), children:vendorChildren};
-    });
-    if(altroTotal>0) children.push({
-      name:"Altre cat.", color:SB_PALETTE[5]||"#cbd5e1", total:altroTotal,
-      pct:Math.round(altroTotal/total*100),
-      children:[{name:"Varie",value:altroTotal}]
-    });
-    return {total, name:"root", children};
+    return {grandTotal, macroMap};
   }, [txs, excInvest]);
+
+  // Calcola le fette del livello corrente in base a `path`
+  const level = React.useMemo(() => {
+    const {grandTotal, macroMap} = agg;
+    // Livello 0: macro
+    if(path.length===0){
+      const entries = Object.entries(macroMap).sort((a,b)=>b[1].total-a[1].total);
+      const slices = entries.map(([name,d],i)=>({name, value:d.total, color:SB_PALETTE[i%SB_PALETTE.length], drill:true}));
+      return {slices, total:grandTotal, centerLabel:"Tutte le spese", centerVal:grandTotal, pctOfGrand:100};
+    }
+    // Livello 1: categorie dentro la macro
+    if(path.length===1){
+      const mc = macroMap[path[0]];
+      if(!mc) return {slices:[], total:0, centerLabel:path[0], centerVal:0, pctOfGrand:0};
+      const entries = Object.entries(mc.cats).sort((a,b)=>b[1].total-a[1].total);
+      const slices = entries.map(([name,d],i)=>({name, value:d.total, color:SB_PALETTE[i%SB_PALETTE.length], drill:true}));
+      return {slices, total:mc.total, centerLabel:path[0], centerVal:mc.total, pctOfGrand:Math.round(mc.total/grandTotal*100)};
+    }
+    // Livello 2: venditori dentro la categoria
+    const mc = macroMap[path[0]];
+    const cat = mc && mc.cats[path[1]];
+    if(!cat) return {slices:[], total:0, centerLabel:path[1], centerVal:0, pctOfGrand:0};
+    const entries = Object.entries(cat.vendors).sort((a,b)=>b[1]-a[1]);
+    const top = entries.slice(0,8);
+    const restTot = entries.slice(8).reduce((s,[,v])=>s+v,0);
+    const slices = top.map(([name,value],i)=>({name, value, color:SB_PALETTE[i%SB_PALETTE.length], drill:false}));
+    if(restTot>0) slices.push({name:"Altri", value:restTot, color:"#cbd5e1", drill:false});
+    return {slices, total:cat.total, centerLabel:path[1], centerVal:cat.total, pctOfGrand:Math.round(cat.total/grandTotal*100)};
+  }, [agg, path]);
 
   React.useEffect(() => {
     const d3 = window.d3;
@@ -1315,109 +1332,106 @@ function SunburstChart({txs, excInvest, selCats, toggleCat}) {
     const W = el.clientWidth||600;
     const R = W/2;
     d3.select(el).selectAll("*").remove();
-
     const svg = d3.select(el)
       .attr("viewBox", `0 0 ${W} ${W}`)
       .attr("width", W).attr("height", W)
       .append("g").attr("transform", `translate(${R},${R})`);
 
-    const root = d3.hierarchy(buildData).sum(d=>d.value||0).sort((a,b)=>b.value-a.value);
-    d3.partition().size([2*Math.PI, R*0.92])(root);
+    const slices = level.slices;
+    if(!slices.length){
+      svg.append("text").attr("text-anchor","middle").attr("dy","0.35em")
+        .attr("fill","#94a3b8").attr("font-size",13).text("Nessun dato");
+      return;
+    }
+    const total = slices.reduce((s,d)=>s+d.value,0)||1;
+    const pie = d3.pie().value(d=>d.value).sort(null).padAngle(0.012);
+    const arcs = pie(slices);
+    const inner = R*0.50, outer = R*0.92;
+    const arc = d3.arc().innerRadius(inner).outerRadius(outer).cornerRadius(3);
 
-    const arc = d3.arc()
-      .startAngle(d=>d.x0).endAngle(d=>d.x1)
-      .padAngle(()=>0.012).padRadius(R*0.3)
-      .innerRadius(d=>d.depth===1?R*0.20:d.y0+2)
-      .outerRadius(d=>d.depth===1?R*0.53:d.y1-2);
-
-    const getColor = d => {
-      if (d.depth===0) return "none";
-      let n=d; while(n.depth>1) n=n.parent;
-      const c = n.data.color||"#ccc";
-      return d.depth===1 ? c : c+"99";
-    };
-
-    svg.selectAll("path")
-      .data(root.descendants().filter(d=>d.depth))
-      .join("path")
-      .attr("d", arc)
-      .attr("fill", getColor)
-      .attr("stroke","#fff").attr("stroke-width",1.5)
-      .attr("opacity", d => {
-        if (!selCats||selCats.length===0) return 1;
-        let n=d; while(n.depth>1) n=n.parent;
-        return selCats.includes(n.data.name)?1:0.3;
+    svg.selectAll("path.slice")
+      .data(arcs).join("path").attr("class","slice")
+      .attr("d", arc).attr("fill", d=>d.data.color)
+      .attr("stroke","#fff").attr("stroke-width",2)
+      .attr("opacity", d=>{
+        if(path.length!==0 || !selCats || selCats.length===0) return 1;
+        // Al livello macro: evidenzia le macro che contengono una categoria selezionata altrove
+        return selCats.some(c=>macroOf(c)===d.data.name)?1:0.35;
       })
       .style("cursor","pointer")
       .on("mousemove",(event,d)=>{
-        let n=d; while(n.depth>1) n=n.parent;
         setTip({x:event.offsetX+12,y:event.offsetY-10,
-          name:d.data.name,
-          val:fmt(d.value),
-          pct:Math.round(d.value/buildData.total*100),
-          cat:n.data.name,
-          isInstrument:!!d.data.isInstrument});
+          name:d.data.name, val:fmt(d.data.value),
+          pct:Math.round(d.data.value/total*100), drill:d.data.drill});
       })
       .on("mouseleave",()=>setTip(null))
       .on("click",(event,d)=>{
-        let n=d; while(n.depth>1) n=n.parent;
-        toggleCat(n.data.name, event.ctrlKey||event.metaKey);
+        if(d.data.drill){ setPath(p=>[...p, d.data.name]); }
+        else if(path.length===0){ toggleCat(d.data.name, event.ctrlKey||event.metaKey); }
       });
 
-    // Inner ring labels (categories)
-    svg.selectAll("text.inner")
-      .data(root.descendants().filter(d=>d.depth===1&&(d.x1-d.x0)>0.14))
-      .join("text").attr("class","inner")
+    // Etichette sulle fette larghe
+    svg.selectAll("text.lbl")
+      .data(arcs.filter(d=>(d.endAngle-d.startAngle)>0.18)).join("text").attr("class","lbl")
       .attr("transform", d=>{
-        const angle=(d.x0+d.x1)/2, r=(d.y0+d.y1)/2;
-        const deg=angle*180/Math.PI-90;
-        return `rotate(${deg}) translate(${r},0) rotate(${angle>Math.PI?180:0})`;
+        const a=(d.startAngle+d.endAngle)/2, r=(inner+outer)/2;
+        const deg=a*180/Math.PI-90;
+        return `rotate(${deg}) translate(${r},0) rotate(${a>Math.PI?180:0})`;
       })
       .attr("text-anchor","middle").attr("dy","0.35em")
-      .attr("fill","#1e293b").attr("font-size", d=>(d.x1-d.x0)>0.4?13:11).attr("font-weight","700")
-      .attr("pointer-events","none")
-      .text(d=>{
-        const n=d.data.name;
-        return n.length>12?n.slice(0,11)+"…":n;
-      });
+      .attr("fill","#1e293b").attr("font-size", d=>(d.endAngle-d.startAngle)>0.5?13:11)
+      .attr("font-weight","700").attr("pointer-events","none")
+      .text(d=>{const n=d.data.name;return n.length>13?n.slice(0,12)+"…":n;});
 
-    // Outer ring labels (vendors) - only if segment is wide enough
-    svg.selectAll("text.outer")
-      .data(root.descendants().filter(d=>d.depth===2&&(d.x1-d.x0)>0.10))
-      .join("text").attr("class","outer")
-      .attr("transform", d=>{
-        const angle=(d.x0+d.x1)/2, r=(d.y0+d.y1)/2;
-        const deg=angle*180/Math.PI-90;
-        return `rotate(${deg}) translate(${r},0) rotate(${angle>Math.PI?180:0})`;
-      })
-      .attr("text-anchor","middle").attr("dy","0.35em")
-      .attr("fill","#1e293b").attr("font-size",10).attr("font-weight","600")
-      .attr("pointer-events","none")
-      .text(d=>{const n=d.data.name;return n.length>9?n.slice(0,8)+"…":n;});
+    // Centro: torna su al clic + totale del livello
+    const center = svg.append("g").style("cursor", path.length>0?"pointer":"default")
+      .on("click",()=>{ if(path.length>0) setPath(p=>p.slice(0,-1)); });
+    center.append("circle").attr("r", inner-4).attr("fill","#fff").attr("opacity", path.length>0?0.01:0); // area cliccabile
+    center.append("text").attr("text-anchor","middle").attr("dy","-1.3em")
+      .attr("fill","#64748b").attr("font-size",10).attr("font-weight","700")
+      .text(level.centerLabel.length>16?level.centerLabel.slice(0,15)+"…":level.centerLabel);
+    center.append("text").attr("text-anchor","middle").attr("dy","0.1em")
+      .attr("fill","#1e293b").attr("font-size",18).attr("font-weight","800")
+      .text(fmtK(level.centerVal));
+    center.append("text").attr("text-anchor","middle").attr("dy","1.5em")
+      .attr("fill","#94a3b8").attr("font-size",10)
+      .text(path.length===0?"100% delle uscite":`${level.pctOfGrand}% del totale`);
+    if(path.length>0){
+      center.append("text").attr("text-anchor","middle").attr("dy","3em")
+        .attr("fill","#60a5fa").attr("font-size",9).attr("font-weight","700")
+        .text("↑ torna su");
+    }
+  }, [level, path, selCats]);
 
-    // Center label
-    svg.append("text")
-      .attr("text-anchor","middle").attr("dy","-0.2em")
-      .attr("fill","#64748b").attr("font-size",11).attr("font-weight","700")
-      .text("Spese");
-    svg.append("text")
-      .attr("text-anchor","middle").attr("dy","1em")
-      .attr("fill","#1e293b").attr("font-size",14).attr("font-weight","800")
-      .text(fmtK(buildData.total));
-
-  }, [buildData, selCats]);
-
+  const crumbs = ["Tutte le macro", ...path];
   return (
-    <div style={{position:"relative",display:"inline-block",width:"100%"}}>
-      <svg ref={svgRef} style={{width:"100%",display:"block",margin:"0 auto"}}/>
+    <div style={{position:"relative",width:"100%"}}>
+      {/* Breadcrumb */}
+      <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginBottom:10,fontSize:12}}>
+        {crumbs.map((c,i)=>(
+          <React.Fragment key={i}>
+            {i>0&&<span style={{color:"#cbd5e1"}}>›</span>}
+            <span onClick={()=>setPath(path.slice(0,i))}
+              style={{cursor:i<crumbs.length-1?"pointer":"default",
+                color:i<crumbs.length-1?"#60a5fa":"#1e293b",
+                fontWeight:i===crumbs.length-1?700:500,
+                background:i===crumbs.length-1?"#eff6ff":"transparent",
+                borderRadius:5,padding:"2px 8px"}}>
+              {i===0?"🗂 "+c:c}
+            </span>
+          </React.Fragment>
+        ))}
+        {path.length===0&&<span style={{marginLeft:"auto",color:"#94a3b8",fontSize:11}}>Clicca uno spicchio per scendere di livello</span>}
+      </div>
+      <svg ref={svgRef} style={{width:"100%",display:"block",margin:"0 auto",maxWidth:520}}/>
       {tip&&(
         <div style={{position:"absolute",left:tip.x,top:tip.y,background:"#1e293b",color:"#fff",
           borderRadius:8,padding:"8px 12px",fontSize:12,pointerEvents:"none",zIndex:100,
           boxShadow:"0 4px 12px rgba(0,0,0,0.2)",minWidth:120}}>
-          <div style={{fontWeight:700,marginBottom:2}}>{tip.isInstrument?"pagato tramite":""} {tip.name}</div>
-          <div style={{color:"#94a3b8",fontSize:11}}>{tip.cat}</div>
+          <div style={{fontWeight:700,marginBottom:2}}>{tip.name}</div>
           <div style={{fontSize:14,fontWeight:800,color:"#60a5fa",marginTop:2}}>{tip.val}</div>
-          <div style={{color:"#94a3b8",fontSize:11}}>{tip.pct}% del totale</div>
+          <div style={{color:"#94a3b8",fontSize:11}}>{tip.pct}% di questo livello</div>
+          {tip.drill&&<div style={{color:"#60a5fa",fontSize:10,marginTop:3}}>clicca per scendere ↓</div>}
         </div>
       )}
     </div>
@@ -1803,7 +1817,7 @@ function CategorieTab({txs,excInvest,selYear,selMonth,selYears,selMonths,onRuleA
               <YAxis type="category" dataKey="name" width={165} interval={0} tick={<ClickableTick onClick={toggleCat} activeNames={selCats}/>}/>
               <Tooltip formatter={v=>fmt(v)} contentStyle={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,fontSize:12}}/>
               <Bar dataKey="value" name="Totale" radius={[0,4,4,0]} style={{cursor:"pointer"}}
-                background={{fill:"transparent",cursor:"pointer",onClick:(data,i,e)=>toggleCat(data?.name||(e?.target?.parentNode?.__data__?.name||""),e?.ctrlKey||e?.metaKey)}}
+                background={{fill:"transparent",stroke:"none",strokeWidth:0,cursor:"pointer",onClick:(data,i,e)=>toggleCat(data?.name||(e?.target?.parentNode?.__data__?.name||""),e?.ctrlKey||e?.metaKey)}}
                 onClick={(data,_,e)=>toggleCat(data.name,(e?.ctrlKey||e?.metaKey))}
                 label={({x,y,width,height,value})=>(
                     <text x={x+width+6} y={y+height/2} dy="0.35em"
@@ -1814,7 +1828,7 @@ function CategorieTab({txs,excInvest,selYear,selMonth,selYears,selMonths,onRuleA
                   )}>
                 {[...catData].reverse().map((_,i)=>{
                   const name=[...catData].reverse()[i].name;
-                  return<Cell key={i} fill={getCatColor(name)} stroke="rgba(0,0,0,0.55)" strokeWidth={1} opacity={selCats.length>0&&!selCats.includes(name)?0.3:1}/>;
+                  return<Cell key={i} fill={getCatColor(name)} stroke="rgba(0,0,0,0.45)" strokeWidth={1} opacity={selCats.length>0&&!selCats.includes(name)?0.3:1}/>;
                 })}
               </Bar>
             </BarChart>
@@ -1822,7 +1836,7 @@ function CategorieTab({txs,excInvest,selYear,selMonth,selYears,selMonths,onRuleA
         </Box>
 
                 {/* SUNBURST — centro */}
-        <Box title="Sunburst — clicca per selezionare (CTRL = multiplo)">
+        <Box title="Anello dinamico — clicca per scendere: macro › categorie › venditori">
           <div style={{display:"flex",justifyContent:"center",width:"100%"}}>
             <SunburstChart txs={txs} excInvest={excInvest} selCats={selCats} toggleCat={toggleCat}/>
           </div>
@@ -2043,7 +2057,7 @@ function VenditoriTab({allTxs,filteredTxs,selYear,selMonth,selYears,selMonths}){
               <YAxis type="category" dataKey="name" width={160} tick={{fill:C.text,fontSize:13,fontWeight:500}}/>
               <Tooltip formatter={v=>fmt(v)} contentStyle={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,fontSize:13}}/>
               <Bar dataKey="total" name="Totale speso" radius={[0,4,4,0]} cursor="pointer"
-                label={{position:"right",formatter:v=>fmt(v),fontSize:12,fill:C.muted,fontWeight:600}}>
+                label={{position:"right",formatter:v=>fmt(v),fontSize:12,fill:C.muted}}>
                 {[...vendors].reverse().map((_,i)=>{
                   const nm=[...vendors].reverse()[i]?.name;
                   return<Cell key={i} fill={nm===selVendor?"#60a5fa":getCatColor(nm||"")} stroke="rgba(0,0,0,0.45)" strokeWidth={1} opacity={selVendor&&nm!==selVendor?0.4:1}/>;
@@ -2730,18 +2744,18 @@ function EntrateTab({txs, allTxs, selYear, selMonth}){
           {catData.length===0?(
             <div style={{textAlign:"center",padding:"40px",color:C.faint}}>Nessuna entrata nel periodo selezionato</div>
           ):(
-            <ResponsiveContainer width="100%" height={Math.max(300,catData.length*38)}>
-              <BarChart data={[...catData].reverse()} layout="vertical" margin={{right:90,left:5}} barCategoryGap="30%">
+            <ResponsiveContainer width="100%" height={Math.max(360,catData.length*44)}>
+              <BarChart data={[...catData].reverse()} layout="vertical" margin={{right:90,left:5}}>
                 <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
                 <XAxis type="number" tickFormatter={fmtK} tick={{fill:C.muted,fontSize:12}} tickLine={false}/>
                 <YAxis type="category" dataKey="name" width={165} interval={0} tick={<ClickableTick onClick={(n)=>toggleCat(n)} activeNames={selCat?[selCat]:[]}/>}/>
                 <Tooltip content={<Tip/>}/>
                 <Bar dataKey="value" name="Entrate" radius={[0,4,4,0]} cursor="pointer"
-                  background={{fill:"transparent",cursor:"pointer",onClick:(data)=>data&&data.name&&toggleCat(data.name)}}
+                  background={{fill:"transparent",stroke:"none",strokeWidth:0,cursor:"pointer",onClick:(data)=>data&&data.name&&toggleCat(data.name)}}
                   onClick={(data)=>toggleCat(data.name)}
-                  label={{position:"right",formatter:v=>fmt(v),fontSize:11,fill:C.muted,fontWeight:600}}>
+                  label={{position:"right",formatter:v=>fmt(v),fontSize:11,fill:C.muted}}>
                   {[...catData].reverse().map((d,i)=>(
-                    <Cell key={i} fill={getCatColor(d.name)} stroke="rgba(0,0,0,0.55)" strokeWidth={1} opacity={selCat&&d.name!==selCat?0.3:1}/>
+                    <Cell key={i} fill={getCatColor(d.name)} stroke="rgba(0,0,0,0.45)" strokeWidth={1} opacity={selCat&&d.name!==selCat?0.3:1}/>
                   ))}
                 </Bar>
               </BarChart>
@@ -2847,12 +2861,12 @@ function MetodiTab({txs,selYear,selMonth}){
             <YAxis type="category" dataKey="name" width={165} interval={0} tick={<ClickableTick onClick={(n)=>setSelMetodo(n===selMetodo?null:n)} activeNames={selMetodo?[selMetodo]:[]}/>}/>
             <Tooltip content={<Tip/>}/>
             <Bar dataKey="uscite" name="Uscite" radius={[0,4,4,0]} cursor="pointer"
-              background={{fill:"transparent",cursor:"pointer",onClick:(d)=>d&&d.name&&setSelMetodo(d.name===selMetodo?null:d.name)}}
+              background={{fill:"transparent",stroke:"none",strokeWidth:0,cursor:"pointer",onClick:(d)=>d&&d.name&&setSelMetodo(d.name===selMetodo?null:d.name)}}
               onClick={(d)=>setSelMetodo(d.name===selMetodo?null:d.name)}
-              label={{position:"right",formatter:v=>fmt(v),fontSize:11,fill:C.muted,fontWeight:600}}>
+              label={{position:"right",formatter:v=>fmt(v),fontSize:11,fill:C.muted}}>
               {[...byMetodo].reverse().map((m,i)=>(
                 <Cell key={i} fill={METODI_COLORS[m.name]||PASTEL[i%PASTEL.length]}
-                  stroke="rgba(0,0,0,0.55)" strokeWidth={1}
+                  stroke="rgba(0,0,0,0.45)" strokeWidth={1}
                   opacity={selMetodo&&m.name!==selMetodo?0.4:1}/>
               ))}
             </Bar>
