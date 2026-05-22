@@ -274,7 +274,7 @@ const CHAIN_MAP=[
   [/\bscalapay\b/i,"Scalapay","Intermediari di Pagamento"],
 ];
 
-const CATS=["Supermercato","Carburante","E-commerce","Streaming","Ristorazione","Sport / Fitness","Casa / Brico","Abbigliamento / Scarpe","Beauty / Cura","Elettronica","Animali","Trasporti / Viaggio","Software / AI","Cultura / Svago","Telefonia","Utenze","Assicurazioni","Farmacia","Tasse","Bonifici","Prelievi ATM","Carta di Credito","Intermediari di Pagamento","Rate / Dom.","Stipendio","Spese Bancarie","Investimenti","💰 Giro Interno","Altro"];
+const CATS=["Supermercato","Carburante","E-commerce","Streaming","Ristorazione","Sport / Fitness","Casa / Brico","Abbigliamento / Scarpe","Beauty / Cura","Elettronica","Animali","Trasporti / Viaggio","Software / AI","Cultura / Svago","Telefonia","Utenze","Assicurazioni","Farmacia","Tasse","Bonifici","Prelievi ATM","Carta di Credito","Intermediari di Pagamento","Rate / Dom.","Stipendio","Spese Bancarie","Investimenti","💰 Giro Interno","Altro","Cashback PayPal","Cashback Satispay","Rimborsi","PayPal — spese a cavallo periodo"];
 // Categorie neutrali (escluse dai totali per default, come investimenti)
 const NEUTRAL_CATS=["📈 Investimenti","💰 Giro Interno"];
 
@@ -373,7 +373,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v9.4 · 22 mag 2026";
+const VERSION="v9.5 · 22 mag 2026";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",minimumFractionDigits:0,maximumFractionDigits:0,useGrouping:true}).format(n||0);
@@ -627,6 +627,100 @@ function parseCSV(text, balanceMap={}){
   }
   return rows;
 }
+
+// ── PARSER PAYPAL ─────────────────────────────────────────────────────────────
+// Parser CSV robusto per campi tra virgolette con virgole interne
+function parseCSVLine(line){
+  const out=[];let cur="";let inQ=false;
+  for(let i=0;i<line.length;i++){
+    const c=line[i];
+    if(c==='"'){
+      if(inQ&&line[i+1]==='"'){cur+='"';i++;}
+      else inQ=!inQ;
+    }else if(c===','&&!inQ){out.push(cur);cur="";}
+    else cur+=c;
+  }
+  out.push(cur);
+  return out;
+}
+// Importo PayPal: "−58,00" o "1.234,56" → numero
+function parsePPAmt(s){
+  if(!s)return 0;
+  s=s.trim().replace(/\./g,"").replace(",",".");
+  return parseFloat(s)||0;
+}
+// Tipi PayPal
+const PP_NEUTRI=new Set([
+  "Versamento generico con carta","Bonifico bancario sul conto PayPal",
+  "Prelievo generico con carta","Conversione di valuta generica"
+]);
+const PP_SCARTA=new Set(["Autorizzazione generica"]);
+
+function parsePayPal(text, owner){
+  const lines=text.replace(/^\ufeff/,"").trim().split("\n");
+  if(!lines.length)return{rows:[],meta:{}};
+  const header=parseCSVLine(lines[0]).map(h=>h.replace(/"/g,"").trim());
+  const col=name=>header.indexOf(name);
+  const ci={data:col("Data"),nome:col("Nome"),tipo:col("Tipo"),stato:col("Stato"),
+            importo:col("Importo"),valuta:col("Valuta"),codice:col("Codice transazione"),desc:col("Descrizione")};
+  const rows=[];
+  let nSpese=0,nEntrate=0,nNeutre=0,nScartate=0,nIncomplete=0;
+  let minDate="9999-99-99",maxDate="0000-00-00";
+
+  for(let i=1;i<lines.length;i++){
+    const p=parseCSVLine(lines[i]).map(x=>x.replace(/^"|"$/g,"").trim());
+    if(p.length<header.length)continue;
+    const stato=p[ci.stato]||"";
+    const tipo=p[ci.tipo]||"";
+    const nome=p[ci.nome]||"";
+    const importo=parsePPAmt(p[ci.importo]);
+    const dataStr=p[ci.data]||"";
+
+    if(stato!=="Completata"){nIncomplete++;continue;}
+    if(PP_SCARTA.has(tipo)){nScartate++;continue;}
+
+    const [dd,mm,yyyy]=dataStr.split("/");
+    if(!dd||!mm||!yyyy)continue;
+    const iso=`${yyyy}-${mm.padStart(2,"0")}-${dd.padStart(2,"0")}`;
+    if(iso<minDate)minDate=iso;
+    if(iso>maxDate)maxDate=iso;
+
+    const isNeutro=PP_NEUTRI.has(tipo);
+    const desc=`PayPal · ${tipo}${nome?" · "+nome:""}${p[ci.codice]?" · "+p[ci.codice]:""}`;
+    let categoria,vendor,uscita=0,entrata=0;
+
+    if(isNeutro){
+      categoria="💰 Giro Interno";
+      vendor="PayPal (ricarica)";
+      if(importo<0)uscita=Math.abs(importo);else entrata=importo;
+      nNeutre++;
+    }else if(importo<0){
+      // Spesa reale → pipeline categorizzazione sul nome esercente
+      const cl=extractAndClassify(nome,nome,rulesGet());
+      categoria=cl.categoria;vendor=cl.vendor;
+      uscita=Math.abs(importo);
+      nSpese++;
+    }else{
+      // Entrata reale (rimborso, cashback)
+      categoria=tipo.toLowerCase().includes("rimborso")?"Rimborsi":"Cashback PayPal";
+      vendor=nome||"PayPal";
+      entrata=importo;
+      nEntrate++;
+    }
+
+    rows.push({
+      date:iso,ym:`${yyyy}-${mm.padStart(2,"0")}`,year:+yyyy,month:+mm,
+      uscita,entrata,
+      causale:`PayPal ${tipo}`,descrizione:desc,
+      categoria,vendor,
+      metodo:isNeutro?"Giroconto":"PayPal",
+      source:"paypal",owner:owner||"Andrea"
+    });
+  }
+  return{rows,meta:{nSpese,nEntrate,nNeutre,nScartate,nIncomplete,minDate,maxDate,
+    totSpese:rows.filter(r=>r.uscita>0&&r.metodo==="PayPal").reduce((s,r)=>s+r.uscita,0)}};
+}
+
 
 // ── GOOGLE SHEETS ─────────────────────────────────────────────────────────────
 async function gsRead(url){
@@ -1377,9 +1471,14 @@ function TransactionTable({rows, onRuleAdded, title, gsUrl}){
                 <td style={{padding:"5px 6px",overflow:"hidden",whiteSpace:"nowrap"}}>
                   <div style={{display:"flex",alignItems:"center",gap:4}}>
                     <span style={{background:"#eff6ff",color:"#3b82f6",borderRadius:4,padding:"2px 6px",fontSize:11,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:110,display:"inline-block"}} title={t.categoria}>{t.categoria}</span>
-                    <button onClick={()=>setInlineEdit({pattern:t.vendor||"",name:t.vendor||"",categoria:t.categoria,date:t.date,importo:t.uscita||t.entrata,descrizione:t.descrizione,vendor:t.vendor,_key:t.date+"|"+t.uscita+"|"+t.causale,_dateChanged:false,_modo:null,_vendorOverride:""})}
-                      title="Modifica categoria"
-                      style={{background:"transparent",border:"none",cursor:"pointer",fontSize:11,padding:"1px 3px",color:C.muted,flexShrink:0}}>✏️</button>
+                    {t._locked?(
+                      <span title="Voce di riconciliazione automatica — non modificabile. Rappresenta spese del wallet il cui addebito dettagliato cade fuori dal periodo caricato. Si aggiorna ai caricamenti successivi."
+                        style={{fontSize:11,padding:"1px 3px",cursor:"help"}}>🔒</span>
+                    ):(
+                      <button onClick={()=>setInlineEdit({pattern:t.vendor||"",name:t.vendor||"",categoria:t.categoria,date:t.date,importo:t.uscita||t.entrata,descrizione:t.descrizione,vendor:t.vendor,_key:t.date+"|"+t.uscita+"|"+t.causale,_dateChanged:false,_modo:null,_vendorOverride:""})}
+                        title="Modifica categoria"
+                        style={{background:"transparent",border:"none",cursor:"pointer",fontSize:11,padding:"1px 3px",color:C.muted,flexShrink:0}}>✏️</button>
+                    )}
                   </div>
                 </td>
                 <td style={{padding:"5px 6px",color:C.muted,whiteSpace:"nowrap",fontSize:12,overflow:"hidden"}}>{t.date}</td>
@@ -2181,16 +2280,6 @@ Tutte le transazioni verranno spostate in "Altro".`))return;
             <button onClick={addCat} style={{background:"#22c55e",color:"#fff",border:"none",borderRadius:6,padding:"7px 16px",cursor:"pointer",fontWeight:700,fontSize:13}}>Aggiungi</button>
             {catSavedMsg&&<span style={{fontSize:12,color:"#16a34a",fontWeight:600}}>{catSavedMsg}</span>}
           </div>
-          {/* Nuova categoria IN CIMA */}
-          <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:14,padding:"12px 14px",background:"#f0fdf4",border:"1px solid #86efac",borderRadius:8}}>
-            <span style={{fontSize:12,color:"#166534",fontWeight:700}}>➕ Nuova:</span>
-            <input value={newCatName} onChange={e=>setNewCatName(e.target.value)}
-              onKeyDown={e=>e.key==="Enter"&&addCat()}
-              placeholder="Nome categoria..."
-              style={{flex:1,minWidth:140,padding:"7px 10px",border:"1px solid #86efac",borderRadius:6,fontSize:13}}/>
-            <button onClick={addCat} style={{background:"#22c55e",color:"#fff",border:"none",borderRadius:6,padding:"7px 16px",cursor:"pointer",fontWeight:700,fontSize:13}}>Aggiungi</button>
-            {catSavedMsg&&<span style={{fontSize:12,color:"#16a34a",fontWeight:600}}>{catSavedMsg}</span>}
-          </div>
           {/* Category list */}
           <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:16}}>
             {cats.map((c,i)=>(
@@ -2676,6 +2765,7 @@ const GENERIC_VENDORS = [
 
 function needsReview(t){
   if(!t.uscita||t.uscita===0)return false;
+  if(t._reconciliation||t._locked)return false; // voce di riconciliazione automatica
   if(t._manualCat)return false; // già categorizzato manualmente dall'utente
   if(NEUTRAL_CATS.includes(t.categoria))return false;
   const SKIP_CATS=["Prelievi ATM","Tasse","Spese Bancarie","Carta di Credito","Intermediari di Pagamento","Rate / Dom.","Stipendio"];
@@ -3070,6 +3160,90 @@ function App(){
     setSyncing(false);setTimeout(()=>setMsg(""),6000);try{document.getElementById("inp-full").value="";}catch{}
   }
 
+  // ── IMPORT PAYPAL con riconciliazione ──────────────────────────────────────
+  async function handlePayPalImport(files){
+    files=Array.isArray(files)?files:Array.from(files.target?.files||[]);
+    if(!files.length)return;
+    const owner=window.prompt("Intestatario di questo estratto PayPal?","Andrea")||"Andrea";
+    setMsg("⏳ Analizzo estratto PayPal...");
+    // Parse tutti i file PayPal
+    let allRows=[],meta={nSpese:0,nEntrate:0,nNeutre:0,nScartate:0,nIncomplete:0,minDate:"9999",maxDate:"0000",totSpese:0};
+    for(const f of files){
+      const txt=await f.text();
+      const{rows,meta:m}=parsePayPal(txt,owner);
+      allRows.push(...rows);
+      meta.nSpese+=m.nSpese;meta.nEntrate+=m.nEntrate;meta.nNeutre+=m.nNeutre;
+      meta.nScartate+=m.nScartate;meta.nIncomplete+=m.nIncomplete;meta.totSpese+=m.totSpese;
+      if(m.minDate<meta.minDate)meta.minDate=m.minDate;
+      if(m.maxDate>meta.maxDate)meta.maxDate=m.maxDate;
+    }
+    if(!allRows.length){setMsg("❌ Nessuna transazione PayPal valida.");setTimeout(()=>setMsg(""),4000);return;}
+
+    // RICONCILIAZIONE: trova addebiti PayPal nel conto nel periodo coperto
+    const bankPayPal=txs.filter(t=>
+      t.source!=="paypal" && t.uscita>0 &&
+      /paypal/i.test(t.causale+" "+t.descrizione) &&
+      t.date>=meta.minDate && t.date<=meta.maxDate
+    );
+    const totBank=bankPayPal.reduce((s,t)=>s+t.uscita,0);
+    const scarto=meta.totSpese-totBank;
+
+    // Conferma con riepilogo
+    const ok=window.confirm(
+      `ESTRATTO PAYPAL — ${owner}\n`+
+      `Periodo: ${meta.minDate} → ${meta.maxDate}\n\n`+
+      `✓ ${meta.nSpese} spese reali (${meta.totSpese.toFixed(2)}€)\n`+
+      `✓ ${meta.nEntrate} entrate · ${meta.nNeutre} ricariche (neutre)\n`+
+      `✗ ${meta.nScartate} autorizzazioni + ${meta.nIncomplete} in sospeso (ignorate)\n\n`+
+      `RICONCILIAZIONE:\n`+
+      `Addebiti PayPal nel conto (stesso periodo): ${totBank.toFixed(2)}€ (${bankPayPal.length} mov.)\n`+
+      `Scarto: ${scarto.toFixed(2)}€\n\n`+
+      `Procedo? Gli addebiti PayPal del conto verranno resi neutri e sostituiti dal dettaglio.`
+    );
+    if(!ok){setMsg("");return;}
+
+    // 1. Neutralizza addebiti PayPal del conto nel periodo
+    const bankKeys=new Set(bankPayPal.map(t=>t.date+"|"+t.uscita+"|"+t.causale));
+    let updated=txs.map(t=>{
+      const key=t.date+"|"+t.uscita+"|"+t.causale;
+      if(bankKeys.has(key))return{...t,categoria:"💰 Giro Interno",vendor:"PayPal (ricarica)",_reconciled:true};
+      return t;
+    });
+
+    // 2. Rimuovi eventuali import PayPal precedenti dello stesso periodo (re-import pulito)
+    updated=updated.filter(t=>!(t.source==="paypal"&&t.date>=meta.minDate&&t.date<=meta.maxDate));
+
+    // 3. Aggiungi le nuove righe PayPal
+    updated=[...updated,...allRows];
+
+    // 4. Voce di riconciliazione (soluzione B) se scarto significativo
+    if(Math.abs(scarto)>1){
+      const[yyyy,mm]=meta.maxDate.split("-");
+      updated.push({
+        date:meta.maxDate,ym:`${yyyy}-${mm}`,year:+yyyy,month:+mm,
+        uscita:scarto>0?scarto:0,entrata:scarto<0?Math.abs(scarto):0,
+        causale:"Riconciliazione PayPal",
+        descrizione:`Voce automatica. Scarto tra spese dettagliate PayPal (${meta.totSpese.toFixed(2)}€) e addebiti nel conto (${totBank.toFixed(2)}€) nel periodo ${meta.minDate}÷${meta.maxDate}. Si aggiorna ai caricamenti successivi.`,
+        categoria:"PayPal — spese a cavallo periodo",
+        vendor:"Riconciliazione PayPal",
+        metodo:"PayPal",source:"paypal",
+        _reconciliation:true,_locked:true,owner
+      });
+    }
+
+    updated.sort((a,b)=>a.date.localeCompare(b.date));
+    setTxs(updated);lsSave(updated);
+    setMsg(`✅ PayPal: ${meta.nSpese} spese + ${bankPayPal.length} addebiti neutralizzati. Sync Sheets...`);
+    setSyncing(true);
+    try{
+      await gsClear(url);
+      await gsWrite(url,updated,(done,tot)=>setMsg(`☁️ Sheets: ${done}/${tot} blocchi · ${Math.round(done/tot*100)}%`));
+      setMsg(`✅ PayPal importato · ${updated.length} transazioni totali.`);
+    }catch{setMsg("⚠️ Importato in locale. Sheets non aggiornato.");}
+    setSyncing(false);setTimeout(()=>setMsg(""),6000);
+    try{document.getElementById("inp-paypal").value="";}catch{}
+  }
+
   const years=useMemo(()=>[...new Set(txs.map(t=>t.year))].sort(),[txs]);
 
   function toggleYear(y,ctrlKey,shiftKey){
@@ -3153,7 +3327,12 @@ function App(){
               })} style={{background:"#fee2e2",color:"#dc2626",border:"1px solid #fca5a5",borderRadius:8,padding:"7px 12px",cursor:syncing?"not-allowed":"pointer",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:4,opacity:syncing?0.6:1}}>
               ♻️ Tutto
             </button>
+            <button disabled={syncing} onClick={()=>{try{document.getElementById("inp-paypal").click();}catch{}}}
+              style={{background:"#dbeafe",color:"#1d4ed8",border:"1px solid #93c5fd",borderRadius:8,padding:"7px 12px",cursor:syncing?"not-allowed":"pointer",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:4,opacity:syncing?0.6:1}}>
+              🅿️ PayPal
+            </button>
             {/* Hidden file inputs */}
+            <input id="inp-paypal" type="file" accept=".csv,.CSV" multiple style={{display:"none"}} onChange={e=>{const fs=Array.from(e.target.files);if(fs.length)handlePayPalImport(fs);e.target.value="";}}/>
             <input id="inp-add" type="file" accept=".csv" multiple style={{display:"none"}} onChange={e=>{const fs=Array.from(e.target.files);if(fs.length)handleUpload(fs);e.target.value="";}}/>
             <input id="inp-rep" type="file" accept=".csv" multiple style={{display:"none"}} onChange={e=>{const fs=Array.from(e.target.files);if(fs.length)handleReplaceByPeriod(fs);e.target.value="";}}/>
             <input id="inp-full" type="file" accept=".csv" multiple style={{display:"none"}} onChange={e=>{const fs=Array.from(e.target.files);if(fs.length)handleFullReimport(fs);e.target.value="";}}/>
