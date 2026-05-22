@@ -278,6 +278,23 @@ const CATS=["Supermercato","Carburante","E-commerce","Streaming","Ristorazione",
 // Categorie neutrali (escluse dai totali per default, come investimenti)
 const NEUTRAL_CATS=["📈 Investimenti","💰 Giro Interno"];
 
+// ── MACRO-CATEGORIE ───────────────────────────────────────────────────────────
+// Raggruppamento di default categoria → macro (l'utente può modificarlo)
+const MACRO_LIST=["🏠 Casa & Quotidianità","🚗 Mobilità","🎯 Tempo Libero","💆 Persona","💼 Business","💰 Finanza & Obblighi","➖ Nessuna"];
+const MACRO_DEFAULT={
+  "Supermercato":"🏠 Casa & Quotidianità","Casa / Brico":"🏠 Casa & Quotidianità","Utenze":"🏠 Casa & Quotidianità",
+  "Telefonia":"🏠 Casa & Quotidianità","Elettronica":"🏠 Casa & Quotidianità","E-commerce":"🏠 Casa & Quotidianità","Animali":"🏠 Casa & Quotidianità",
+  "Auto / Moto":"🚗 Mobilità","Carburante":"🚗 Mobilità","Trasporti / Viaggio":"🚗 Mobilità",
+  "Ristorazione":"🎯 Tempo Libero","Sport / Fitness":"🎯 Tempo Libero","Cultura / Svago":"🎯 Tempo Libero","Streaming":"🎯 Tempo Libero",
+  "Salute":"💆 Persona","Farmacia":"💆 Persona","Beauty / Cura":"💆 Persona","Abbigliamento / Scarpe":"💆 Persona",
+  "FOTOGRAFIA Business":"💼 Business","Software / AI":"💼 Business",
+  "Tasse":"💰 Finanza & Obblighi","Assicurazioni":"💰 Finanza & Obblighi","Rate / Dom.":"💰 Finanza & Obblighi",
+  "Spese Bancarie":"💰 Finanza & Obblighi","Carta di Credito":"💰 Finanza & Obblighi","Intermediari di Pagamento":"💰 Finanza & Obblighi",
+};
+function macroGet(){try{const d=localStorage.getItem("userMacros");return d?JSON.parse(d):{...MACRO_DEFAULT};}catch{return{...MACRO_DEFAULT};}}
+function macroSave(m){try{localStorage.setItem("userMacros",JSON.stringify(m))}catch{}}
+function macroOf(cat){const m=macroGet();return m[cat]||"➖ Nessuna";}
+
 function rulesGet(){try{const d=localStorage.getItem("userRules");return d?JSON.parse(d):[]}catch{return[]}}
 function rulesSave(r){try{localStorage.setItem("userRules",JSON.stringify(r))}catch{}}
 function apiKeyGet(){try{return localStorage.getItem("claudeApiKey")||""}catch{return""}}
@@ -322,7 +339,7 @@ function applyAlias(cat){const a=aliasGet();return a[cat]||cat;}
 // Salva/carica TUTTE le impostazioni su Sheets (tab "Impostazioni")
 async function settingsPush(url){
   if(!url)return;
-  const data={cats:catsGet(),rules:rulesGet(),aliases:aliasGet()};
+  const data={cats:catsGet(),rules:rulesGet(),aliases:aliasGet(),macros:macroGet()};
   try{
     // POST no-cors per evitare il problema redirect di Apps Script
     await fetch(`${url}?action=saveSettings`,{
@@ -357,6 +374,10 @@ async function settingsPull(url){
         const merged={...d.settings.aliases,...aliasGet()};
         aliasSave(merged);
       }
+      // Macros: ripristina se presenti su Sheets
+      if(d.settings.macros&&Object.keys(d.settings.macros).length){
+        macroSave({...MACRO_DEFAULT,...d.settings.macros});
+      }
       return true;
     }
   }catch{}
@@ -373,7 +394,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v9.5 · 22 mag 2026";
+const VERSION="v9.6 · 22 mag 2026";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",minimumFractionDigits:0,maximumFractionDigits:0,useGrouping:true}).format(n||0);
@@ -658,11 +679,20 @@ const PP_SCARTA=new Set(["Autorizzazione generica"]);
 
 function parsePayPal(text, owner){
   const lines=text.replace(/^\ufeff/,"").trim().split("\n");
-  if(!lines.length)return{rows:[],meta:{}};
+  if(!lines.length)return{rows:[],meta:{error:"Il file è vuoto."}};
   const header=parseCSVLine(lines[0]).map(h=>h.replace(/"/g,"").trim());
   const col=name=>header.indexOf(name);
   const ci={data:col("Data"),nome:col("Nome"),tipo:col("Tipo"),stato:col("Stato"),
             importo:col("Importo"),valuta:col("Valuta"),codice:col("Codice transazione"),desc:col("Descrizione")};
+  // Validazione formato: servono almeno Data, Tipo, Stato, Importo
+  const missing=[];
+  if(ci.data<0)missing.push("Data");
+  if(ci.tipo<0)missing.push("Tipo");
+  if(ci.stato<0)missing.push("Stato");
+  if(ci.importo<0)missing.push("Importo");
+  if(missing.length){
+    return{rows:[],meta:{error:`Questo non sembra un estratto PayPal valido.\nColonne mancanti: ${missing.join(", ")}.\n\nScarica il report delle attività in formato CSV completo (in italiano) dalle impostazioni del tuo account PayPal.`}};
+  }
   const rows=[];
   let nSpese=0,nEntrate=0,nNeutre=0,nScartate=0,nIncomplete=0;
   let minDate="9999-99-99",maxDate="0000-00-00";
@@ -691,7 +721,7 @@ function parsePayPal(text, owner){
 
     if(isNeutro){
       categoria="💰 Giro Interno";
-      vendor="PayPal (ricarica)";
+      vendor="Transazione PayPal";
       if(importo<0)uscita=Math.abs(importo);else entrata=importo;
       nNeutre++;
     }else if(importo<0){
@@ -719,6 +749,55 @@ function parsePayPal(text, owner){
   }
   return{rows,meta:{nSpese,nEntrate,nNeutre,nScartate,nIncomplete,minDate,maxDate,
     totSpese:rows.filter(r=>r.uscita>0&&r.metodo==="PayPal").reduce((s,r)=>s+r.uscita,0)}};
+}
+
+// ── PARSER CARTA DI CREDITO (ING) ─────────────────────────────────────────────
+// Due formati: 2019 (header minuscolo, spese POSITIVE → da invertire)
+//              2025+ (header MAIUSCOLO, spese NEGATIVE → segno standard)
+function parseCartaCredito(text, owner){
+  const lines=text.replace(/^\ufeff/,"").replace(/\r/g,"").trim().split("\n");
+  if(!lines.length)return{rows:[],meta:{error:"Il file è vuoto."}};
+  const headerRaw=lines[0];
+  const header=headerRaw.split(";").map(h=>h.trim());
+  const low=header.map(h=>h.toLowerCase());
+  const ci={dataOp:low.indexOf("data operazione"),desc:low.indexOf("descrizione operazione"),importo:low.indexOf("importo in euro")};
+  if(ci.dataOp<0||ci.desc<0||ci.importo<0){
+    return{rows:[],meta:{error:`Questo non sembra un estratto Carta di Credito ING valido.\nColonne attese: Data operazione, Descrizione operazione, Importo in euro.\nTrovate: ${header.join(", ")}.`}};
+  }
+  // Convenzione segno: header MAIUSCOLO → formato nuovo (spese già negative)
+  const isNewFormat=headerRaw.includes("DATA OPERAZIONE");
+  const rows=[];
+  let nSpese=0,nEntrate=0,nScartate=0,minDate="9999-99-99",maxDate="0000-00-00";
+  for(let i=1;i<lines.length;i++){
+    const p=lines[i].split(";").map(x=>x.trim());
+    if(p.length<header.length)continue;
+    const dataStr=p[ci.dataOp]||"";
+    const desc=p[ci.desc]||"";
+    if(!dataStr||/^totale/i.test(desc)||/^totale/i.test(dataStr)){nScartate++;continue;}
+    const [dd,mm,yyyy]=dataStr.split("/");
+    if(!dd||!mm||!yyyy)continue;
+    const iso=`${yyyy}-${mm.padStart(2,"0")}-${dd.padStart(2,"0")}`;
+    let amt=parsePPAmt(p[ci.importo]);
+    if(!isNewFormat)amt=-amt; // 2019: inverti segno
+    if(iso<minDate)minDate=iso;
+    if(iso>maxDate)maxDate=iso;
+    let uscita=0,entrata=0,categoria,vendor;
+    if(amt<0){
+      // Spesa reale → pipeline categorizzazione sulla descrizione esercente
+      const cl=extractAndClassify(desc,desc,rulesGet());
+      vendor=cl.vendor;categoria=cl.categoria;uscita=Math.abs(amt);nSpese++;
+    }else if(amt>0){
+      vendor=extractAndClassify(desc,desc,rulesGet()).vendor||"Rimborso carta";
+      categoria=applyAlias("Rimborsi");entrata=amt;nEntrate++;
+    }else continue;
+    rows.push({
+      date:iso,ym:iso.slice(0,7),year:+yyyy,month:+mm,
+      uscita,entrata,causale:"Carta di Credito",descrizione:desc,
+      categoria,vendor,metodo:"Carta di Credito",source:"cartacredito",owner:owner||"Andrea"
+    });
+  }
+  return{rows,meta:{nSpese,nEntrate,nScartate,minDate,maxDate,format:isNewFormat?"2025":"2019",
+    totSpese:rows.reduce((s,r)=>s+r.uscita,0)}};
 }
 
 
@@ -898,10 +977,10 @@ function Tip({active,payload,label}){
 function Card({label,value,sub,color,textColor,icon}){
   const tc=textColor||"#1e293b";
   return(
-    <div style={{background:color,borderRadius:12,padding:"16px 20px",flex:"1 1 140px",boxShadow:"0 1px 4px rgba(0,0,0,0.08)",border:"1px solid rgba(0,0,0,0.06)"}}>
-      <div style={{color:tc,opacity:0.65,fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:1.2,marginBottom:8,fontFamily:"system-ui,sans-serif"}}>{icon} {label}</div>
-      <div style={{color:tc,fontSize:26,fontWeight:700,lineHeight:1,letterSpacing:-0.5,fontFamily:"system-ui,-apple-system,'Segoe UI',sans-serif"}}>{value}</div>
-      {sub&&<div style={{color:tc,opacity:0.55,fontSize:11,marginTop:6,fontWeight:600,fontFamily:"system-ui,sans-serif"}}>{sub}</div>}
+    <div style={{background:color,borderRadius:10,padding:"9px 16px",flex:"1 1 140px",boxShadow:"0 1px 3px rgba(0,0,0,0.08)",border:"1px solid rgba(0,0,0,0.06)"}}>
+      <div style={{color:tc,opacity:0.65,fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:3,fontFamily:"system-ui,sans-serif"}}>{icon} {label}</div>
+      <div style={{color:tc,fontSize:21,fontWeight:700,lineHeight:1.05,letterSpacing:-0.5,fontFamily:"system-ui,-apple-system,'Segoe UI',sans-serif"}}>{value}</div>
+      {sub&&<div style={{color:tc,opacity:0.55,fontSize:10,marginTop:2,fontWeight:600,fontFamily:"system-ui,sans-serif"}}>{sub}</div>}
     </div>
   );
 }
@@ -1105,8 +1184,8 @@ function PanoramicaTab({allTxs,filteredTxs,selYears,selYear,selMonth,excInvest,b
                   <YAxis yAxisId="right" orientation="right" tickFormatter={fmtK} tick={{fill:C.muted,fontSize:10}} width={55}/>
                   <Tooltip content={<Tip/>}/>
                   <Legend wrapperStyle={{fontSize:12}}/>
-                  <Bar yAxisId="left" dataKey="entrate" name="Entrate" fill="#6ee7b7" stroke="rgba(0,0,0,0.12)" strokeWidth={1} radius={[3,3,0,0]}/>
-                  <Bar yAxisId="left" dataKey="uscite" name="Uscite" fill="#fca5a5" stroke="rgba(0,0,0,0.12)" strokeWidth={1} radius={[3,3,0,0]}/>
+                  <Bar yAxisId="left" dataKey="entrate" name="Entrate" fill="#6ee7b7" stroke="rgba(0,0,0,0.45)" strokeWidth={1} radius={[3,3,0,0]}/>
+                  <Bar yAxisId="left" dataKey="uscite" name="Uscite" fill="#fca5a5" stroke="rgba(0,0,0,0.45)" strokeWidth={1} radius={[3,3,0,0]}/>
                   <Line yAxisId="right" type="monotone" dataKey="saldoCumulativo" name="Saldo" stroke="#60a5fa" strokeWidth={2.5} dot={false} activeDot={{r:5}}/>
                 </ComposedChart>
               </ResponsiveContainer>
@@ -1122,7 +1201,7 @@ function PanoramicaTab({allTxs,filteredTxs,selYears,selYear,selMonth,excInvest,b
               <Tooltip content={<Tip/>}/>
               <ReferenceLine y={0} stroke="#94a3b8"/>
               <Bar dataKey="saldo" name="Saldo" radius={[3,3,0,0]}>
-                {(selYears.length>0?agg.monthly:agg.yearly).map((d,i)=><Cell key={i} fill={d.saldo>=0?"#6ee7b7":"#fca5a5"}/>)}
+                {(selYears.length>0?agg.monthly:agg.yearly).map((d,i)=><Cell key={i} fill={d.saldo>=0?"#6ee7b7":"#fca5a5"} stroke="rgba(0,0,0,0.45)" strokeWidth={1}/>)}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -1167,7 +1246,7 @@ function MensileTab({txs,excInvest}){
             <Tooltip content={<Tip/>}/>
             <ReferenceLine y={0} stroke="#94a3b8"/>
             <Bar dataKey="saldo" name="Saldo" radius={[2,2,0,0]}>
-              {agg.monthly.map((d,i)=><Cell key={i} fill={d.saldo>=0?"#6ee7b7":"#fca5a5"}/>)}
+              {agg.monthly.map((d,i)=><Cell key={i} fill={d.saldo>=0?"#6ee7b7":"#fca5a5"} stroke="rgba(0,0,0,0.45)" strokeWidth={1}/>)}
             </Bar>
           </BarChart>
         </ResponsiveContainer>
@@ -1721,7 +1800,7 @@ function CategorieTab({txs,excInvest,selYear,selMonth,selYears,selMonths,onRuleA
             <BarChart data={[...catData].reverse()} layout="vertical" margin={{right:65}}>
               <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
               <XAxis type="number" tickFormatter={fmtK} tick={{fill:C.muted,fontSize:13}} tickLine={false}/>
-              <YAxis type="category" dataKey="name" width={130} width={165} interval={0} tick={<ClickableTick onClick={toggleCat} activeNames={selCats}/>}/>
+              <YAxis type="category" dataKey="name" width={165} interval={0} tick={<ClickableTick onClick={toggleCat} activeNames={selCats}/>}/>
               <Tooltip formatter={v=>fmt(v)} contentStyle={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,fontSize:12}}/>
               <Bar dataKey="value" name="Totale" radius={[0,4,4,0]} style={{cursor:"pointer"}}
                 background={{fill:"transparent",cursor:"pointer",onClick:(data,i,e)=>toggleCat(data?.name||(e?.target?.parentNode?.__data__?.name||""),e?.ctrlKey||e?.metaKey)}}
@@ -1735,7 +1814,7 @@ function CategorieTab({txs,excInvest,selYear,selMonth,selYears,selMonths,onRuleA
                   )}>
                 {[...catData].reverse().map((_,i)=>{
                   const name=[...catData].reverse()[i].name;
-                  return<Cell key={i} fill={getCatColor(name)} stroke="rgba(0,0,0,0.12)" strokeWidth={0.5} opacity={selCats.length>0&&!selCats.includes(name)?0.3:1}/>;
+                  return<Cell key={i} fill={getCatColor(name)} stroke="rgba(0,0,0,0.55)" strokeWidth={1} opacity={selCats.length>0&&!selCats.includes(name)?0.3:1}/>;
                 })}
               </Bar>
             </BarChart>
@@ -1967,7 +2046,7 @@ function VenditoriTab({allTxs,filteredTxs,selYear,selMonth,selYears,selMonths}){
                 label={{position:"right",formatter:v=>fmt(v),fontSize:12,fill:C.muted,fontWeight:600}}>
                 {[...vendors].reverse().map((_,i)=>{
                   const nm=[...vendors].reverse()[i]?.name;
-                  return<Cell key={i} fill={nm===selVendor?"#60a5fa":getCatColor(nm||"")} opacity={selVendor&&nm!==selVendor?0.4:1}/>;
+                  return<Cell key={i} fill={nm===selVendor?"#60a5fa":getCatColor(nm||"")} stroke="rgba(0,0,0,0.45)" strokeWidth={1} opacity={selVendor&&nm!==selVendor?0.4:1}/>;
                 })}
               </Bar>
             </BarChart>
@@ -2087,8 +2166,8 @@ function InvestimentiTab({txs, balanceSaldos}){
             <YAxis tickFormatter={fmtK} tick={{fill:C.muted,fontSize:10}}/>
             <Tooltip content={<Tip/>}/>
             <Legend wrapperStyle={{fontSize:12}}/>
-            <Bar dataKey="acquisti" name="Acquisti" fill="#fca5a5" stroke="rgba(0,0,0,0.12)" strokeWidth={1} radius={[3,3,0,0]}/>
-            <Bar dataKey="vendite"  name="Vendite"  fill="#6ee7b7" stroke="rgba(0,0,0,0.12)" strokeWidth={1} radius={[3,3,0,0]}/>
+            <Bar dataKey="acquisti" name="Acquisti" fill="#fca5a5" stroke="rgba(0,0,0,0.45)" strokeWidth={1} radius={[3,3,0,0]}/>
+            <Bar dataKey="vendite"  name="Vendite"  fill="#6ee7b7" stroke="rgba(0,0,0,0.45)" strokeWidth={1} radius={[3,3,0,0]}/>
           </BarChart>
         </ResponsiveContainer>
       </Box>
@@ -2122,6 +2201,15 @@ function RulesTab({gsUrl,txs,onRulesChange}){
   const [newCatName,setNewCatName]=useState("");
   const [activeSection,setActiveSection]=useState("cats");
   const [syncStatus,setSyncStatus]=useState("");
+  const [macros,setMacros]=useState(()=>macroGet());
+  function setMacroFor(cat,macro){
+    const m={...macroGet(),[cat]:macro};
+    macroSave(m);setMacros(m);notify();
+  }
+  function resetMacros(){
+    if(!window.confirm("Ripristinare il raggruppamento macro predefinito?"))return;
+    macroSave({...MACRO_DEFAULT});setMacros({...MACRO_DEFAULT});notify();
+  }
 
   // Sync da Sheets ogni volta che si apre il tab Regole
   useEffect(()=>{
@@ -2242,7 +2330,7 @@ Tutte le transazioni verranno spostate in "Altro".`))return;
   }
 
   function exportRules(){
-    const data=JSON.stringify({rules:rulesGet(),cats:catsGet(),aliases:aliasGet()},null,2);
+    const data=JSON.stringify({rules:rulesGet(),cats:catsGet(),aliases:aliasGet(),macros:macroGet()},null,2);
     const blob=new Blob([data],{type:"application/json"});
     const a=document.createElement("a");
     a.href=URL.createObjectURL(blob);
@@ -2258,6 +2346,7 @@ Tutte le transazioni verranno spostate in "Altro".`))return;
       {/* Section nav */}
       <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
         <SectionBtn id="cats" label="🏷 Categorie"/>
+        <SectionBtn id="macros" label="🗂 Macro-categorie"/>
         <SectionBtn id="rules" label="🔧 Regole fornitore"/>
         <SectionBtn id="builtins" label="📋 Mappa automatica"/>
         <button onClick={exportRules} style={{marginLeft:"auto",background:"#f1f5f9",border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 12px",cursor:"pointer",fontSize:11,color:C.muted,fontWeight:600}}>⬇️ Esporta JSON</button>
@@ -2307,6 +2396,51 @@ Tutte le transazioni verranno spostate in "Altro".`))return;
             ))}
           </div>
           <button onClick={resetCats} style={{background:"#f1f5f9",color:C.muted,border:`1px solid ${C.border}`,borderRadius:6,padding:"7px 14px",cursor:"pointer",fontSize:12,alignSelf:"flex-end"}}>↺ Ripristina default</button>
+        </Box>
+      </>)}
+
+      {/* ── MACRO-CATEGORIE ── */}
+      {activeSection==="macros"&&(<>
+        <Box title="Macro-categorie">
+          <p style={{fontSize:12,color:C.muted,marginBottom:14,lineHeight:1.6}}>
+            Raggruppa le tue categorie in <strong>macro-aree</strong>. Servono per le viste d'insieme (es. il Sunburst a livelli) e per leggere la spesa "dall'alto". Ogni categoria può appartenere a una macro; scegli <strong>➖ Nessuna</strong> per escluderla.
+          </p>
+          <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
+            <button onClick={resetMacros} style={{background:"#f1f5f9",color:C.muted,border:`1px solid ${C.border}`,borderRadius:6,padding:"6px 12px",cursor:"pointer",fontSize:12}}>↺ Ripristina raggruppamento default</button>
+          </div>
+          {MACRO_LIST.filter(mc=>mc!=="➖ Nessuna").map(mc=>{
+            const inMacro=cats.filter(c=>(macros[c]||"➖ Nessuna")===mc);
+            return(
+              <div key={mc} style={{marginBottom:14,border:`1px solid ${C.border}`,borderRadius:8,overflow:"hidden"}}>
+                <div style={{background:"#f8fafc",padding:"8px 12px",fontWeight:700,fontSize:13,color:C.text,borderBottom:`1px solid ${C.border}`}}>
+                  {mc} <span style={{color:C.faint,fontWeight:400,fontSize:11}}>· {inMacro.length} categorie</span>
+                </div>
+                <div style={{padding:"8px 12px",display:"flex",flexWrap:"wrap",gap:6}}>
+                  {inMacro.length===0?<span style={{color:C.faint,fontSize:12,fontStyle:"italic"}}>Nessuna categoria qui</span>:
+                    inMacro.map(c=>(
+                      <span key={c} style={{display:"inline-flex",alignItems:"center",gap:5,background:getCatColor(c),borderRadius:6,padding:"3px 8px",fontSize:12,fontWeight:600,border:"1px solid rgba(0,0,0,0.12)"}}>
+                        {c}
+                      </span>
+                    ))}
+                </div>
+              </div>
+            );
+          })}
+        </Box>
+        <Box title="Assegna categoria → macro">
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {cats.filter(c=>!NEUTRAL_CATS.includes(c)&&c!=="Altro").map(c=>(
+              <div key={c} style={{display:"flex",alignItems:"center",gap:10,padding:"5px 8px",borderRadius:6,background:"#f8fafc"}}>
+                <span style={{display:"inline-flex",alignItems:"center",gap:5,minWidth:200,fontSize:13,fontWeight:600}}>
+                  <span style={{width:10,height:10,borderRadius:3,background:getCatColor(c),flexShrink:0}}/>{c}
+                </span>
+                <select value={macros[c]||"➖ Nessuna"} onChange={e=>setMacroFor(c,e.target.value)}
+                  style={{flex:1,padding:"6px 10px",border:`1px solid ${C.border}`,borderRadius:6,fontSize:13}}>
+                  {MACRO_LIST.map(mc=><option key={mc} value={mc}>{mc}</option>)}
+                </select>
+              </div>
+            ))}
+          </div>
         </Box>
       </>)}
 
@@ -2528,6 +2662,7 @@ const METODI_COLORS={
 
 function EntrateTab({txs, allTxs, selYear, selMonth}){
   const [selCat,setSelCat]=useState(null);
+  function toggleCat(name){setSelCat(prev=>prev===name?null:name);}
 
   useEffect(()=>{
     const h=e=>{if(e.key==="Escape")setSelCat(null);};
@@ -2596,17 +2731,17 @@ function EntrateTab({txs, allTxs, selYear, selMonth}){
             <div style={{textAlign:"center",padding:"40px",color:C.faint}}>Nessuna entrata nel periodo selezionato</div>
           ):(
             <ResponsiveContainer width="100%" height={Math.max(300,catData.length*38)}>
-              <BarChart data={[...catData].reverse()} layout="vertical" margin={{right:90,left:5}} barCategoryGap="30%"
-              onClick={d=>{if(d?.activePayload?.[0]){toggleCat(d.activePayload[0].payload.name,d.nativeEvent?.ctrlKey||d.nativeEvent?.metaKey);}}}>
+              <BarChart data={[...catData].reverse()} layout="vertical" margin={{right:90,left:5}} barCategoryGap="30%">
                 <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
                 <XAxis type="number" tickFormatter={fmtK} tick={{fill:C.muted,fontSize:12}} tickLine={false}/>
-                <YAxis type="category" dataKey="name" width={130} tick={{fill:C.text,fontSize:13,fontWeight:600}}/>
+                <YAxis type="category" dataKey="name" width={165} interval={0} tick={<ClickableTick onClick={(n)=>toggleCat(n)} activeNames={selCat?[selCat]:[]}/>}/>
                 <Tooltip content={<Tip/>}/>
                 <Bar dataKey="value" name="Entrate" radius={[0,4,4,0]} cursor="pointer"
-                  onClick={(data)=>setSelCat(selCat===data.name?null:data.name)}
+                  background={{fill:"transparent",cursor:"pointer",onClick:(data)=>data&&data.name&&toggleCat(data.name)}}
+                  onClick={(data)=>toggleCat(data.name)}
                   label={{position:"right",formatter:v=>fmt(v),fontSize:11,fill:C.muted,fontWeight:600}}>
                   {[...catData].reverse().map((d,i)=>(
-                    <Cell key={i} fill={PASTEL[i%PASTEL.length]} opacity={selCat&&d.name!==selCat?0.3:1}/>
+                    <Cell key={i} fill={getCatColor(d.name)} stroke="rgba(0,0,0,0.55)" strokeWidth={1} opacity={selCat&&d.name!==selCat?0.3:1}/>
                   ))}
                 </Bar>
               </BarChart>
@@ -2709,13 +2844,15 @@ function MetodiTab({txs,selYear,selMonth}){
           <BarChart data={[...byMetodo].reverse()} layout="vertical" margin={{right:80}}>
             <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
             <XAxis type="number" tickFormatter={fmtK} tick={{fill:C.muted,fontSize:12}}/>
-            <YAxis type="category" dataKey="name" width={150} tick={{fill:C.text,fontSize:12,fontWeight:500}}/>
+            <YAxis type="category" dataKey="name" width={165} interval={0} tick={<ClickableTick onClick={(n)=>setSelMetodo(n===selMetodo?null:n)} activeNames={selMetodo?[selMetodo]:[]}/>}/>
             <Tooltip content={<Tip/>}/>
             <Bar dataKey="uscite" name="Uscite" radius={[0,4,4,0]} cursor="pointer"
+              background={{fill:"transparent",cursor:"pointer",onClick:(d)=>d&&d.name&&setSelMetodo(d.name===selMetodo?null:d.name)}}
               onClick={(d)=>setSelMetodo(d.name===selMetodo?null:d.name)}
               label={{position:"right",formatter:v=>fmt(v),fontSize:11,fill:C.muted,fontWeight:600}}>
               {[...byMetodo].reverse().map((m,i)=>(
                 <Cell key={i} fill={METODI_COLORS[m.name]||PASTEL[i%PASTEL.length]}
+                  stroke="rgba(0,0,0,0.55)" strokeWidth={1}
                   opacity={selMetodo&&m.name!==selMetodo?0.4:1}/>
               ))}
             </Bar>
@@ -2782,6 +2919,12 @@ function RevisioneTab({txs, onRuleAdded}){
     try{return new Set(JSON.parse(localStorage.getItem("revisione_ignored")||"[]"));}catch{return new Set();}
   });
   const [inlineEdit,setInlineEdit]=useState(null);
+  const [sortBy,setSortBy]=useState("importo");
+  const [sortDir,setSortDir]=useState("desc");
+  function toggleSort(col){
+    if(sortBy===col){setSortDir(d=>d==="asc"?"desc":"asc");}
+    else{setSortBy(col);setSortDir(col==="importo"?"desc":"asc");}
+  }
 
   useEffect(()=>{
     const h=e=>{if(e.key==="Escape")setInlineEdit(null);};
@@ -2835,10 +2978,18 @@ function RevisioneTab({txs, onRuleAdded}){
     });
   }
 
-  const toReview=useMemo(()=>
-    txs.filter(t=>needsReview(t)&&!ignored.has(t.date+"|"+t.uscita+"|"+t.causale))
-      .sort((a,b)=>b.uscita-a.uscita)
-  ,[txs,ignored]);
+  const toReview=useMemo(()=>{
+    const list=txs.filter(t=>needsReview(t)&&!ignored.has(t.date+"|"+t.uscita+"|"+t.causale));
+    const dir=sortDir==="asc"?1:-1;
+    const cmp={
+      categoria:(a,b)=>(a.categoria||"").localeCompare(b.categoria||"","it"),
+      data:(a,b)=>a.date.localeCompare(b.date),
+      venditore:(a,b)=>(a.vendor||"").localeCompare(b.vendor||"","it"),
+      descrizione:(a,b)=>(a.descrizione||"").localeCompare(b.descrizione||"","it"),
+      importo:(a,b)=>a.uscita-b.uscita,
+    }[sortBy]||((a,b)=>a.uscita-b.uscita);
+    return [...list].sort((a,b)=>dir*cmp(a,b));
+  },[txs,ignored,sortBy,sortDir]);
 
   const total=toReview.reduce((s,t)=>s+t.uscita,0);
 
@@ -2874,8 +3025,11 @@ function RevisioneTab({txs, onRuleAdded}){
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:13,tableLayout:"auto",minWidth:700}}>
               <thead>
                 <tr style={{borderBottom:`2px solid ${C.border}`,background:"#fff7ed"}}>
-                  {["Categoria","Data","Venditore","Descrizione","Importo",""].map(h=>(
-                    <th key={h} style={{textAlign:h==="Importo"?"right":"left",padding:"7px 8px",color:"#92400e",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:0.5,whiteSpace:"nowrap"}}>{h}</th>
+                  {[["Categoria","categoria","left"],["Data","data","left"],["Venditore","venditore","left"],["Descrizione","descrizione","left"],["Importo","importo","right"],["",null,"left"]].map(([h,col,al])=>(
+                    <th key={h||"_act"} onClick={col?()=>toggleSort(col):undefined}
+                      style={{textAlign:al,padding:"7px 8px",color:"#92400e",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:0.5,whiteSpace:"nowrap",cursor:col?"pointer":"default",userSelect:"none"}}>
+                      {h}{col&&sortBy===col?(sortDir==="asc"?" ↑":" ↓"):""}
+                    </th>
                   ))}
                 </tr>
               </thead>
@@ -3034,6 +3188,7 @@ function App(){
   const [ready,setReady]=useState(false);
   const [rulesRev,setRulesRev]=useState(0);
   const [modal,setModal]=useState(null);
+  const [routeModal,setRouteModal]=useState(null);
   const [balanceSaldos,setBalanceSaldos]=useState(()=>{
     try{const d=localStorage.getItem("balanceSaldos");return d?JSON.parse(d):{};}catch{return{};}
   }); // saldi iniziali/finali dai CSV — persistiti in localStorage // {title,message,danger,onConfirm,pendingFiles,handler}
@@ -3171,6 +3326,12 @@ function App(){
     for(const f of files){
       const txt=await f.text();
       const{rows,meta:m}=parsePayPal(txt,owner);
+      if(m&&m.error){
+        window.alert("⚠️ "+f.name+"\n\n"+m.error);
+        setMsg("");
+        try{document.getElementById("inp-paypal").value="";}catch{}
+        return;
+      }
       allRows.push(...rows);
       meta.nSpese+=m.nSpese;meta.nEntrate+=m.nEntrate;meta.nNeutre+=m.nNeutre;
       meta.nScartate+=m.nScartate;meta.nIncomplete+=m.nIncomplete;meta.totSpese+=m.totSpese;
@@ -3206,7 +3367,7 @@ function App(){
     const bankKeys=new Set(bankPayPal.map(t=>t.date+"|"+t.uscita+"|"+t.causale));
     let updated=txs.map(t=>{
       const key=t.date+"|"+t.uscita+"|"+t.causale;
-      if(bankKeys.has(key))return{...t,categoria:"💰 Giro Interno",vendor:"PayPal (ricarica)",_reconciled:true};
+      if(bankKeys.has(key))return{...t,categoria:"💰 Giro Interno",vendor:"Transazione PayPal",_reconciled:true};
       return t;
     });
 
@@ -3242,6 +3403,128 @@ function App(){
     }catch{setMsg("⚠️ Importato in locale. Sheets non aggiornato.");}
     setSyncing(false);setTimeout(()=>setMsg(""),6000);
     try{document.getElementById("inp-paypal").value="";}catch{}
+  }
+
+  // ── IMPORT CARTA DI CREDITO con riconciliazione ────────────────────────────
+  async function handleCartaCreditoImport(files, owner){
+    files=Array.isArray(files)?files:Array.from(files.target?.files||[]);
+    if(!files.length)return;
+    owner=owner||"Andrea";
+    setMsg("⏳ Analizzo estratto Carta di Credito...");
+    let allRows=[],meta={nSpese:0,nEntrate:0,nScartate:0,minDate:"9999",maxDate:"0000",totSpese:0};
+    for(const f of files){
+      const txt=await f.text();
+      const{rows,meta:m}=parseCartaCredito(txt,owner);
+      if(m&&m.error){window.alert("⚠️ "+f.name+"\n\n"+m.error);setMsg("");return;}
+      allRows.push(...rows);
+      meta.nSpese+=m.nSpese;meta.nEntrate+=m.nEntrate;meta.nScartate+=m.nScartate;meta.totSpese+=m.totSpese;
+      if(m.minDate<meta.minDate)meta.minDate=m.minDate;
+      if(m.maxDate>meta.maxDate)meta.maxDate=m.maxDate;
+    }
+    if(!allRows.length){setMsg("❌ Nessuna transazione Carta di Credito valida.");setTimeout(()=>setMsg(""),4000);return;}
+
+    // Re-import pulito: rimuovi import carta precedenti dello stesso periodo
+    let base=txs.filter(t=>!(t.source==="cartacredito"&&t.date>=meta.minDate&&t.date<=meta.maxDate));
+    // RICONCILIAZIONE: neutralizza gli addebiti carta di credito nel conto, nel periodo coperto
+    const bankCC=base.filter(t=>
+      t.source!=="cartacredito" && t.uscita>0 &&
+      /carta di credito|carta credito|estratto conto carta/i.test(t.causale+" "+t.descrizione) &&
+      t.date>=meta.minDate && t.date<=meta.maxDate
+    );
+    const bankCCtot=bankCC.reduce((s,t)=>s+t.uscita,0);
+    const bankKeys=new Set(bankCC.map(t=>t.date+"|"+t.uscita+"|"+t.causale));
+    let updated=base.map(t=>{
+      const key=t.date+"|"+t.uscita+"|"+t.causale;
+      if(bankKeys.has(key))return{...t,categoria:"💰 Giro Interno",vendor:"Transazione Carta di Credito",_reconciled:true};
+      return t;
+    });
+    updated.push(...allRows);
+
+    // Voce di riconciliazione (soluzione B): scarto = spese dettaglio − addebiti conto nel periodo
+    const scarto=Math.round((meta.totSpese-bankCCtot)*100)/100;
+    if(Math.abs(scarto)>=1){
+      updated.push({
+        date:meta.maxDate,ym:meta.maxDate.slice(0,7),year:+meta.maxDate.slice(0,4),month:+meta.maxDate.slice(5,7),
+        uscita:scarto>0?scarto:0,entrata:scarto<0?Math.abs(scarto):0,
+        causale:"Carta di Credito",descrizione:`Riconciliazione Carta di Credito · periodo ${meta.minDate} → ${meta.maxDate} · spese dettaglio ${fmt(meta.totSpese)} vs addebiti conto ${fmt(bankCCtot)}`,
+        categoria:"PayPal — spese a cavallo periodo",vendor:"Riconciliazione Carta di Credito",
+        metodo:"Carta di Credito",source:"cartacredito",_reconciliation:true,_locked:true,owner
+      });
+    }
+    updated.sort((a,b)=>a.date.localeCompare(b.date));
+    setTxs(updated);lsSave(updated);
+    setMsg(`✅ Carta di Credito: ${meta.nSpese} spese + ${bankCC.length} addebiti neutralizzati. Sync Sheets...`);
+    setSyncing(true);
+    try{
+      await gsClear(url);
+      await gsWrite(url,updated,(done,tot)=>setMsg(`☁️ Sheets: ${done}/${tot} blocchi · ${Math.round(done/tot*100)}%`));
+      setMsg(`✅ Carta di Credito importata · ${updated.length} transazioni totali.`);
+    }catch{setMsg("⚠️ Importato in locale. Sheets non aggiornato.");}
+    setSyncing(false);setTimeout(()=>setMsg(""),6000);
+  }
+
+  // ── RICONOSCIMENTO FONTE (tasto unico "Carica dati") ───────────────────────
+  async function detectSource(file){
+    const txt=await file.text();
+    const firstLine=(txt.replace(/^\ufeff/,"").split("\n")[0]||"").trim();
+    const low=firstLine.toLowerCase();
+    // Carta ING (credito o debito): colonne separate da ; con "data operazione"
+    if(low.includes("data operazione")&&low.includes("descrizione operazione")){
+      return low.includes("data registrazione")?"cartacredito":"cartadebito";
+    }
+    // PayPal: header con virgole contenente "tipo" e "stato"
+    if(low.includes("tipo")&&low.includes("stato")&&low.includes("importo")) return "paypal";
+    // Default: estratto conto corrente ING
+    return "banca";
+  }
+
+  // Analizza i file, riconosce la fonte, calcola sovrapposizione e apre il modal intelligente
+  async function analyzeAndRoute(files){
+    files=Array.isArray(files)?files:Array.from(files.target?.files||[]);
+    if(!files.length)return;
+    setMsg("🔍 Riconosco il tipo di file...");
+    const src=await detectSource(files[0]);
+    setMsg("");
+
+    if(src==="paypal"){
+      setRouteModal({source:"paypal",files,title:"🅿️ Estratto PayPal",
+        body:"Ho riconosciuto un estratto PayPal. Le spese verranno categorizzate e gli addebiti PayPal nel conto verranno neutralizzati automaticamente (riconciliazione per periodo).",
+        action:"paypal"});
+      return;
+    }
+    if(src==="cartacredito"){
+      let minD="9999",maxD="0000",nrow=0;
+      for(const f of files){const{rows}=parseCartaCredito(await f.text(),"Andrea");rows.forEach(r=>{if(r.date<minD)minD=r.date;if(r.date>maxD)maxD=r.date;nrow++;});}
+      setRouteModal({source:"cartacredito",files,title:"💳 Estratto Carta di Credito",
+        body:`Ho riconosciuto un estratto Carta di Credito ING (${nrow} movimenti, periodo ${minD} → ${maxD}). Le spese verranno categorizzate e gli addebiti carta nel conto verranno neutralizzati (riconciliazione per periodo).`,
+        action:"cartacredito"});
+      return;
+    }
+    if(src==="cartadebito"){
+      const dbg=await parseFiles(files);
+      const newRows=dbg.rows;
+      const existSet=new Set(txs.map(t=>t.date+"|"+Math.round(t.uscita*100)));
+      const dup=newRows.filter(r=>existSet.has(r.date+"|"+Math.round(r.uscita*100))).length;
+      setRouteModal({source:"cartadebito",files,danger:true,title:"⚠️ Estratto Carta di Debito",
+        body:`Ho riconosciuto un estratto Carta di Debito.\n\nQuesti movimenti escono subito dal conto e sono già presenti nell'estratto del tuo conto corrente: ${dup} di ${newRows.length} risultano già caricati. Importarli li conterebbe DUE VOLTE.\n\nTi consiglio di ANNULLARE.`,
+        action:"cartadebito_blocked"});
+      return;
+    }
+    // src === "banca"
+    const dbg=await parseFiles(files);
+    const newRows=dbg.rows;
+    if(!newRows.length){setMsg("❌ Nessuna riga valida nei file selezionati.");setTimeout(()=>setMsg(""),3500);return;}
+    const newDates=newRows.map(r=>r.date).sort();
+    const minD=newDates[0],maxD=newDates[newDates.length-1];
+    const overlap=txs.filter(t=>t.source!=="paypal"&&t.source!=="cartacredito"&&t.date>=minD&&t.date<=maxD).length;
+    const isEmpty=txs.length===0;
+    setRouteModal({source:"banca",files,title:"🏦 Estratto Conto Corrente",
+      body:isEmpty
+        ? `Primo caricamento riconosciuto: ${newRows.length} transazioni, periodo ${minD} → ${maxD}.`
+        : `Estratto conto riconosciuto: ${newRows.length} transazioni, periodo ${minD} → ${maxD}.\nNel database ho già ${overlap} transazioni in questo periodo.`,
+      overlap, minD, maxD, newCount:newRows.length, isEmpty,
+      suggested: overlap>0 ? "sostituisci" : "aggiungi",
+      action:"banca_choose"});
   }
 
   const years=useMemo(()=>[...new Set(txs.map(t=>t.year))].sort(),[txs]);
@@ -3306,33 +3589,14 @@ function App(){
               </div>
               <div style={{color:C.muted,fontSize:10}}>{txs.length.toLocaleString()} transazioni · <strong style={{color:"#60a5fa"}}>{periodLabel}</strong><span style={{marginLeft:8,background:"#f0fdf4",color:"#16a34a",borderRadius:4,padding:"1px 6px",fontSize:9,fontWeight:700,letterSpacing:0.5}}>{VERSION}</span></div>
             </div>
-            <button disabled={syncing} onClick={()=>setModal({
-                title:"📂 Aggiungi transazioni",
-                message:"Usa questa funzione per aggiungere nuovi record da una nuova estrazione della tua banca.\n\nI dati verranno accodati al database esistente.\n\nAttenzione: se carichi un file già importato in precedenza, le transazioni risulteranno duplicate.",
-                danger:false, inputId:"inp-add"
-              })} style={{background:"#60a5fa",color:"#fff",borderRadius:8,padding:"7px 12px",cursor:syncing?"not-allowed":"pointer",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:4,opacity:syncing?0.6:1,border:"none"}}>
-              📂 Aggiungi
-            </button>
-            <button disabled={syncing} onClick={()=>setModal({
-                title:"🔁 Sostituisci periodo",
-                message:"Usa questa funzione per ricaricare un\'estrazione che avevi già importato.\n\nLe transazioni con lo stesso intervallo di date verranno eliminate e sostituite con quelle del nuovo file.\n\nLe transazioni di altri periodi non vengono toccate.",
-                danger:false, inputId:"inp-rep"
-              })} style={{background:"#fef3c7",color:"#b45309",border:"1px solid #fcd34d",borderRadius:8,padding:"7px 12px",cursor:syncing?"not-allowed":"pointer",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:4,opacity:syncing?0.6:1}}>
-              🔁 Sostituisci
-            </button>
-            <button disabled={syncing} onClick={()=>setModal({
-                title:"♻️ Reimport completo",
-                message:`⚠️ Operazione irreversibile.\n\nL'intero database verrà azzerato e sostituito dai file che selezionerai.\nTutte le ${txs.length} transazioni attuali andranno perse.\n\nLe tue regole di categorizzazione e le categorie personalizzate rimarranno intatte.`,
-                danger:true, inputId:"inp-full"
-              })} style={{background:"#fee2e2",color:"#dc2626",border:"1px solid #fca5a5",borderRadius:8,padding:"7px 12px",cursor:syncing?"not-allowed":"pointer",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:4,opacity:syncing?0.6:1}}>
-              ♻️ Tutto
-            </button>
-            <button disabled={syncing} onClick={()=>{try{document.getElementById("inp-paypal").click();}catch{}}}
-              style={{background:"#dbeafe",color:"#1d4ed8",border:"1px solid #93c5fd",borderRadius:8,padding:"7px 12px",cursor:syncing?"not-allowed":"pointer",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:4,opacity:syncing?0.6:1}}>
-              🅿️ PayPal
+            <button disabled={syncing} onClick={()=>{try{document.getElementById("inp-unified").click();}catch{}}}
+              style={{background:"#2563eb",color:"#fff",borderRadius:8,padding:"8px 16px",cursor:syncing?"not-allowed":"pointer",fontSize:13,fontWeight:700,display:"flex",alignItems:"center",gap:6,opacity:syncing?0.6:1,border:"none"}}>
+              ⬆️ Carica dati
             </button>
             {/* Hidden file inputs */}
+            <input id="inp-unified" type="file" accept=".csv,.CSV" multiple style={{display:"none"}} onChange={e=>{const fs=Array.from(e.target.files);if(fs.length)analyzeAndRoute(fs);e.target.value="";}}/>
             <input id="inp-paypal" type="file" accept=".csv,.CSV" multiple style={{display:"none"}} onChange={e=>{const fs=Array.from(e.target.files);if(fs.length)handlePayPalImport(fs);e.target.value="";}}/>
+            <input id="inp-cc" type="file" accept=".csv,.CSV" multiple style={{display:"none"}} onChange={e=>{const fs=Array.from(e.target.files);if(fs.length)handleCartaCreditoImport(fs);e.target.value="";}}/>
             <input id="inp-add" type="file" accept=".csv" multiple style={{display:"none"}} onChange={e=>{const fs=Array.from(e.target.files);if(fs.length)handleUpload(fs);e.target.value="";}}/>
             <input id="inp-rep" type="file" accept=".csv" multiple style={{display:"none"}} onChange={e=>{const fs=Array.from(e.target.files);if(fs.length)handleReplaceByPeriod(fs);e.target.value="";}}/>
             <input id="inp-full" type="file" accept=".csv" multiple style={{display:"none"}} onChange={e=>{const fs=Array.from(e.target.files);if(fs.length)handleFullReimport(fs);e.target.value="";}}/>
@@ -3504,9 +3768,71 @@ function App(){
         title={modal.title}
         message={modal.message}
         danger={modal.danger}
-        onConfirm={()=>{const id=modal.inputId;setModal(null);setTimeout(()=>{try{document.getElementById(id).click();}catch{}},50);}}
+        onConfirm={()=>{
+          if(modal._handler==="full"&&modal._files){const fs=modal._files;setModal(null);handleFullReimport(fs);return;}
+          const id=modal.inputId;setModal(null);setTimeout(()=>{try{document.getElementById(id).click();}catch{}},50);
+        }}
         onCancel={()=>setModal(null)}
       />}
+
+      {/* MODAL RICONOSCIMENTO FONTE (tasto unico Carica dati) */}
+      {routeModal&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}
+          onMouseDown={e=>{if(e.target===e.currentTarget)setRouteModal(null);}}>
+          <div style={{background:"#fff",borderRadius:14,padding:28,maxWidth:560,width:"100%",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:18,fontWeight:800,color:routeModal.danger?"#dc2626":"#1e40af",marginBottom:14}}>{routeModal.title}</div>
+            <div style={{fontSize:13,color:"#334155",lineHeight:1.6,whiteSpace:"pre-wrap",marginBottom:20,background:routeModal.danger?"#fef2f2":"#f8fafc",border:`1px solid ${routeModal.danger?"#fecaca":"#e2e8f0"}`,borderRadius:8,padding:"12px 14px"}}>{routeModal.body}</div>
+
+            {/* Azioni in base alla fonte */}
+            {routeModal.action==="paypal"&&(
+              <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+                <button onClick={()=>setRouteModal(null)} style={{padding:"9px 18px",border:`1px solid ${C.border}`,borderRadius:8,background:"#f8fafc",color:C.muted,fontWeight:600,fontSize:13,cursor:"pointer"}}>Annulla</button>
+                <button onClick={()=>{const fs=routeModal.files;setRouteModal(null);handlePayPalImport(fs);}} style={{padding:"9px 22px",border:"none",borderRadius:8,background:"#2563eb",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer"}}>Importa PayPal</button>
+              </div>
+            )}
+            {routeModal.action==="cartacredito"&&(
+              <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+                <button onClick={()=>setRouteModal(null)} style={{padding:"9px 18px",border:`1px solid ${C.border}`,borderRadius:8,background:"#f8fafc",color:C.muted,fontWeight:600,fontSize:13,cursor:"pointer"}}>Annulla</button>
+                <button onClick={()=>{const fs=routeModal.files;setRouteModal(null);handleCartaCreditoImport(fs);}} style={{padding:"9px 22px",border:"none",borderRadius:8,background:"#2563eb",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer"}}>Importa Carta di Credito</button>
+              </div>
+            )}
+            {routeModal.action==="cartadebito_blocked"&&(
+              <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+                <button onClick={()=>setRouteModal(null)} style={{padding:"9px 22px",border:"none",borderRadius:8,background:"#16a34a",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer"}}>Annulla (consigliato)</button>
+                <button onClick={()=>{const fs=routeModal.files;setRouteModal(null);handleUpload(fs);}} style={{padding:"9px 18px",border:"1px solid #fca5a5",borderRadius:8,background:"#fff",color:"#dc2626",fontWeight:600,fontSize:13,cursor:"pointer"}}>Carica lo stesso</button>
+              </div>
+            )}
+            {routeModal.action==="banca_choose"&&(
+              <>
+                <div style={{fontSize:12,color:C.muted,marginBottom:10,fontWeight:600}}>Come vuoi caricare questi dati?</div>
+                <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:18}}>
+                  {/* Aggiungi */}
+                  <button onClick={()=>{const fs=routeModal.files;setRouteModal(null);handleUpload(fs);}}
+                    style={{textAlign:"left",padding:"12px 14px",border:`2px solid ${routeModal.suggested==="aggiungi"?"#2563eb":"#e2e8f0"}`,borderRadius:8,background:routeModal.suggested==="aggiungi"?"#eff6ff":"#fff",cursor:"pointer"}}>
+                    <div style={{fontWeight:700,fontSize:13,color:"#1e293b"}}>📂 Aggiungi {routeModal.suggested==="aggiungi"&&<span style={{color:"#2563eb",fontSize:11}}>· consigliato</span>}</div>
+                    <div style={{fontSize:11,color:C.muted,marginTop:3}}>Accoda solo le transazioni nuove, salta i duplicati già presenti.</div>
+                  </button>
+                  {/* Sostituisci */}
+                  <button onClick={()=>{const fs=routeModal.files;setRouteModal(null);handleReplaceByPeriod(fs);}}
+                    style={{textAlign:"left",padding:"12px 14px",border:`2px solid ${routeModal.suggested==="sostituisci"?"#f59e0b":"#e2e8f0"}`,borderRadius:8,background:routeModal.suggested==="sostituisci"?"#fffbeb":"#fff",cursor:"pointer"}}>
+                    <div style={{fontWeight:700,fontSize:13,color:"#1e293b"}}>🔁 Sostituisci periodo {routeModal.suggested==="sostituisci"&&<span style={{color:"#b45309",fontSize:11}}>· consigliato</span>}</div>
+                    <div style={{fontSize:11,color:C.muted,marginTop:3}}>Elimina le transazioni del periodo {routeModal.minD} → {routeModal.maxD} e le sostituisce con queste. Altri periodi intatti.</div>
+                  </button>
+                  {/* Tutto */}
+                  <button onClick={()=>{const fs=routeModal.files;setRouteModal(null);setModal({title:"♻️ Reimport completo",message:`⚠️ Operazione irreversibile.\n\nL'intero database verrà azzerato e sostituito dai file selezionati.\nTutte le ${txs.length} transazioni attuali andranno perse.\n\nRegole e categorie personalizzate restano intatte.`,danger:true,_files:fs,_handler:"full"});}}
+                    style={{textAlign:"left",padding:"12px 14px",border:"2px solid #fca5a5",borderRadius:8,background:"#fff",cursor:"pointer"}}>
+                    <div style={{fontWeight:700,fontSize:13,color:"#dc2626"}}>♻️ Ricarica tutto</div>
+                    <div style={{fontSize:11,color:C.muted,marginTop:3}}>Azzera il database e ricarica da zero. Irreversibile.</div>
+                  </button>
+                </div>
+                <div style={{textAlign:"right"}}>
+                  <button onClick={()=>setRouteModal(null)} style={{padding:"8px 18px",border:`1px solid ${C.border}`,borderRadius:8,background:"#f8fafc",color:C.muted,fontWeight:600,fontSize:13,cursor:"pointer"}}>Annulla</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
         </div>
       </div>
     </div>
