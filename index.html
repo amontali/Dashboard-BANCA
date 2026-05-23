@@ -414,7 +414,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v9.8.3 · 23 mag 2026";
+const VERSION="v9.9 · 23 mag 2026";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",minimumFractionDigits:0,maximumFractionDigits:0,useGrouping:true}).format(n||0);
@@ -2109,9 +2109,11 @@ function VenditoriTab({allTxs,filteredTxs,selYear,selMonth,selYears,selMonths}){
     return aggregateVendors(base,"").slice(0,20);
   },[filteredTxs,catFilter]);
   const vendorTrend=useMemo(()=>{
-    if(!selVendor)return[];
     const base=catFilter?allTxs.filter(t=>t.categoria===catFilter):allTxs;
-    const vendorTxs=base.filter(t=>t.uscita>0&&(t.vendor||(extractAndClassify(t.causale,t.descrizione,rulesGet()).vendor))===selVendor);
+    // Se nessun fornitore selezionato → andamento aggregato di TUTTI i fornitori
+    const vendorTxs=selVendor
+      ? base.filter(t=>t.uscita>0&&(t.vendor||(extractAndClassify(t.causale,t.descrizione,rulesGet()).vendor))===selVendor)
+      : base.filter(t=>t.uscita>0&&(showInvest||t.categoria!=="📈 Investimenti"));
     if(selYear&&selMonth){
       // Vista giornaliera: giorni del mese selezionato
       const byDay={};
@@ -2135,7 +2137,7 @@ function VenditoriTab({allTxs,filteredTxs,selYear,selMonth,selYears,selMonths}){
       vendorTxs.forEach(t=>{byYm[t.ym]=(byYm[t.ym]||0)+t.uscita;});
       return Object.entries(byYm).sort().map(([ym,v])=>({label:fmtYm(ym),value:Math.round(v)}));
     }
-  },[allTxs,selVendor,catFilter,selYear,selMonth]);
+  },[allTxs,selVendor,catFilter,selYear,selMonth,showInvest]);
   const vendorTotale=vendors.find(v=>v.name===selVendor);
   return(
     <div style={{display:"flex",flexDirection:"column",gap:16}}>
@@ -2172,28 +2174,35 @@ function VenditoriTab({allTxs,filteredTxs,selYear,selMonth,selYears,selMonths}){
           </ResponsiveContainer>
         </Box>
         {/* Vendor trend */}
-        <Box title={selVendor?(selYear&&selMonth?`📅 Giorni ${MONTHS_IT[selMonth-1]} ${selYear}: ${selVendor}`:selYear?`📅 Mesi ${selYear}: ${selVendor}`:`📅 Anni: ${selVendor}`):"📅 Andamento fornitore"} minH={460}>
-          {!selVendor?(
-            <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:200,color:C.faint,fontSize:13,textAlign:"center",flexDirection:"column",gap:8}}>
-              <div style={{fontSize:32}}>👈</div>
-              <div>Clicca una barra del grafico<br/>di sinistra per vedere il trend</div>
-            </div>
-          ):(
+        <Box title={selVendor?(selYear&&selMonth?`📅 Giorni ${MONTHS_IT[selMonth-1]} ${selYear}: ${selVendor}`:selYear?`📅 Mesi ${selYear}: ${selVendor}`:`📅 Anni: ${selVendor}`):(selYear&&selMonth?`📅 Giorni ${MONTHS_IT[selMonth-1]} ${selYear} — tutti i fornitori`:selYear?`📅 Mesi ${selYear} — tutti i fornitori`:"📅 Andamento — tutti i fornitori")} minH={460}>
+          {(()=>{
+            const aggTotal=vendorTrend.reduce((s,d)=>s+d.value,0);
+            const aggCount=selVendor?vendorTotale?.count:vendors.reduce((s,v)=>s+v.count,0);
+            const showStats=selVendor?vendorTotale:aggTotal>0;
+            return(
             <>
-              {vendorTotale&&(
+              {showStats&&(
                 <div style={{display:"flex",gap:12,marginBottom:14,flexWrap:"wrap"}}>
                   <div style={{background:"#eff6ff",borderRadius:8,padding:"8px 14px",fontSize:12}}>
                     <span style={{color:C.muted}}>Totale: </span>
-                    <strong style={{color:"#3b82f6"}}>{fmt(vendorTotale.total)}</strong>
+                    <strong style={{color:"#3b82f6"}}>{fmt(selVendor?vendorTotale.total:aggTotal)}</strong>
                   </div>
                   <div style={{background:"#f0fdf4",borderRadius:8,padding:"8px 14px",fontSize:12}}>
                     <span style={{color:C.muted}}>Operazioni: </span>
-                    <strong style={{color:"#10b981"}}>{vendorTotale.count}</strong>
+                    <strong style={{color:"#10b981"}}>{aggCount}</strong>
                   </div>
-                  <div style={{background:"#fefce8",borderRadius:8,padding:"8px 14px",fontSize:12}}>
-                    <span style={{color:C.muted}}>Media/volta: </span>
-                    <strong style={{color:"#ca8a04"}}>{fmt(vendorTotale.total/vendorTotale.count)}</strong>
-                  </div>
+                  {selVendor&&(
+                    <div style={{background:"#fefce8",borderRadius:8,padding:"8px 14px",fontSize:12}}>
+                      <span style={{color:C.muted}}>Media/volta: </span>
+                      <strong style={{color:"#ca8a04"}}>{fmt(vendorTotale.total/vendorTotale.count)}</strong>
+                    </div>
+                  )}
+                  {!selVendor&&(
+                    <div style={{background:"#f1f5f9",borderRadius:8,padding:"8px 14px",fontSize:12}}>
+                      <span style={{color:C.muted}}>Fornitori: </span>
+                      <strong style={{color:"#64748b"}}>{vendors.length}</strong>
+                    </div>
+                  )}
                 </div>
               )}
               <ResponsiveContainer width="100%" height={280}>
@@ -2220,24 +2229,9 @@ function VenditoriTab({allTxs,filteredTxs,selYear,selMonth,selYears,selMonths}){
                   </BarChart>
                 )}
               </ResponsiveContainer>
-              {vendorTrend.length>0&&(
-                <div style={{marginTop:10}}>
-                  <p style={{fontSize:11,color:C.muted,marginBottom:8,fontWeight:600}}>DETTAGLIO MENSILE</p>
-                  <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-                    <p style={{fontSize:10,color:C.faint,marginBottom:6,fontWeight:600}}>
-                {selYear&&selMonth?`GIORNI DI ${MONTHS_IT[selMonth-1].toUpperCase()} ${selYear}`:selYear?`MESI DEL ${selYear}`:"ULTIMI 12 MESI"}
-              </p>
-              {vendorTrend.slice(-12).map((d,i)=>(
-                      <div key={i} style={{background:"#f8fafc",border:`1px solid ${C.border}`,borderRadius:6,padding:"4px 8px",fontSize:11,textAlign:"center"}}>
-                        <div style={{color:C.faint,fontSize:9}}>{d.label}</div>
-                        <div style={{color:C.text,fontWeight:700}}>{fmtKS(d.value)}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </>
-          )}
+            );
+          })()}
         </Box>
       </div>
 
@@ -2899,21 +2893,33 @@ function EntrateTab({txs, allTxs, selYear, selMonth}){
         {/* Trend */}
         <Box title={selCat?`📅 Andamento: ${selCat}`:"📅 Andamento entrate totali"}>
           <ResponsiveContainer width="100%" height={280}>
-            <AreaChart data={trendData} margin={{top:10,right:20,left:10,bottom:5}}>
-              <defs>
-                <linearGradient id="gEntrate" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#6ee7b7" stopOpacity={0.4}/>
-                  <stop offset="95%" stopColor="#6ee7b7" stopOpacity={0}/>
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
-              <XAxis dataKey="label" tick={{fill:C.muted,fontSize:10}} interval={trendData.length>24?2:0}/>
-              <YAxis tickFormatter={fmtK} tick={{fill:C.muted,fontSize:10}} domain={[0,dm=>Math.ceil((dm||0)*1.15)]}/>
-              <Tooltip content={<Tip/>}/>
-              <Area type="monotone" dataKey="value" name={selCat||"Entrate"} stroke="#6ee7b7" fill="url(#gEntrate)" strokeWidth={2.5} dot={false} activeDot={{r:5}}>
-                <LabelList dataKey="value" content={makeLineLabel(trendData.length, fmtK)}/>
-              </Area>
-            </AreaChart>
+            {selYear&&selMonth?(
+              <AreaChart data={trendData} margin={{top:18,right:20,left:10,bottom:5}}>
+                <defs>
+                  <linearGradient id="gEntrate" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#6ee7b7" stopOpacity={0.4}/>
+                    <stop offset="95%" stopColor="#6ee7b7" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+                <XAxis dataKey="label" tick={{fill:C.muted,fontSize:10}} interval={trendData.length>24?2:0}/>
+                <YAxis tickFormatter={fmtK} tick={{fill:C.muted,fontSize:10}} domain={[0,dm=>Math.ceil((dm||0)*1.15)]}/>
+                <Tooltip content={<Tip/>}/>
+                <Area type="monotone" dataKey="value" name={selCat||"Entrate"} stroke="#6ee7b7" fill="url(#gEntrate)" strokeWidth={2.5} dot={{fill:"#6ee7b7",r:3}} activeDot={{r:5}}>
+                  <LabelList dataKey="value" content={makeLineLabel(trendData.length, fmtK)}/>
+                </Area>
+              </AreaChart>
+            ):(
+              <BarChart data={trendData} margin={{top:18,right:10,left:10,bottom:5}}>
+                <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+                <XAxis dataKey="label" tick={{fill:C.muted,fontSize:10}} interval={trendData.length>24?2:0}/>
+                <YAxis tickFormatter={fmtK} tick={{fill:C.muted,fontSize:10}} domain={[0,dm=>Math.ceil((dm||0)*1.15)]}/>
+                <Tooltip content={<Tip/>}/>
+                <Bar dataKey="value" name={selCat||"Entrate"} fill="#6ee7b7" stroke="rgba(0,0,0,0.45)" strokeWidth={1} radius={[3,3,0,0]}>
+                  <LabelList dataKey="value" content={makeBarLabel(trendData.length, fmtK)}/>
+                </Bar>
+              </BarChart>
+            )}
           </ResponsiveContainer>
           {selCat&&<div style={{textAlign:"center",marginTop:8}}>
             <button onClick={()=>setSelCat(null)} style={{background:"#f1f5f9",border:`1px solid ${C.border}`,borderRadius:6,padding:"4px 12px",cursor:"pointer",fontSize:11,color:C.muted}}>✕ Deseleziona</button>
@@ -2938,99 +2944,117 @@ function EntrateTab({txs, allTxs, selYear, selMonth}){
 
 function MetodiTab({txs,selYear,selMonth}){
   const [selMetodo,setSelMetodo]=React.useState(null);
-  const [sortBy,setSortBy]=React.useState("date");
 
   // Aggrega per metodo
   const byMetodo=React.useMemo(()=>{
     const map={};
     txs.forEach(t=>{
       const m=t.metodo||detectMetodo(t.causale,t.descrizione);
-      if(!map[m])map[m]={name:m,uscite:0,entrate:0,count:0,txs:[]};
+      if(!map[m])map[m]={name:m,uscite:0,entrate:0,count:0};
       map[m].uscite+=t.uscita;
       map[m].entrate+=t.entrata;
       map[m].count++;
-      map[m].txs.push(t);
     });
     return Object.values(map).sort((a,b)=>b.uscite-a.uscite);
   },[txs]);
 
-  const tableRows=React.useMemo(()=>{
-    if(!selMetodo)return[];
-    const rows=txs.filter(t=>(t.metodo||detectMetodo(t.causale,t.descrizione))===selMetodo);
-    return sortBy==="date"?[...rows].sort((a,b)=>b.date.localeCompare(a.date)):[...rows].sort((a,b)=>b.uscita-a.uscita);
-  },[txs,selMetodo,sortBy]);
-
+  // Andamento: metodo selezionato, oppure aggregato di TUTTI i metodi
   const trend=React.useMemo(()=>{
-    if(!selMetodo)return[];
-    const rows=txs.filter(t=>(t.metodo||detectMetodo(t.causale,t.descrizione))===selMetodo&&t.uscita>0);
-    const byYm={};
-    rows.forEach(t=>{byYm[t.ym]=(byYm[t.ym]||0)+t.uscita;});
-    return Object.entries(byYm).sort().map(([ym,v])=>({label:fmtYm(ym),value:Math.round(v)}));
-  },[txs,selMetodo]);
+    const rows=txs.filter(t=>t.uscita>0&&(selMetodo?(t.metodo||detectMetodo(t.causale,t.descrizione))===selMetodo:true));
+    if(selYear&&selMonth){
+      const byDay={};
+      rows.filter(t=>t.year===selYear&&t.month===selMonth).forEach(t=>{byDay[t.date]=(byDay[t.date]||0)+t.uscita;});
+      return Object.entries(byDay).sort().map(([date,v])=>({label:date.slice(8,10)+"/"+MONTHS_IT[+date.slice(5,7)-1],value:Math.round(v)}));
+    } else if(selYear){
+      const byYm={};
+      rows.filter(t=>t.year===selYear).forEach(t=>{byYm[t.ym]=(byYm[t.ym]||0)+t.uscita;});
+      return Object.entries(byYm).sort().map(([ym,v])=>({label:fmtYm(ym),value:Math.round(v)}));
+    } else {
+      const byYm={};
+      rows.forEach(t=>{byYm[t.ym]=(byYm[t.ym]||0)+t.uscita;});
+      return Object.entries(byYm).sort().map(([ym,v])=>({label:fmtYm(ym),value:Math.round(v)}));
+    }
+  },[txs,selMetodo,selYear,selMonth]);
+
+  const metodoTotale=byMetodo.find(m=>m.name===selMetodo);
+  const aggTotal=trend.reduce((s,d)=>s+d.value,0);
+  const aggCount=selMetodo?metodoTotale?.count:byMetodo.reduce((s,m)=>s+m.count,0);
 
   return(
     <div style={{display:"flex",flexDirection:"column",gap:16}}>
-      {/* Summary cards */}
-      <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-        {byMetodo.map((m,i)=>(
-          <div key={i} onClick={()=>setSelMetodo(m.name===selMetodo?null:m.name)}
-            style={{background:selMetodo===m.name?"#1e293b":(METODI_COLORS[m.name]||"#f1f5f9"),
-              borderRadius:10,padding:"12px 16px",cursor:"pointer",flex:"1 1 140px",
-              border:`2px solid ${selMetodo===m.name?"#1e293b":"transparent"}`,
-              boxShadow:"0 1px 4px rgba(0,0,0,0.06)",transition:"all .15s"}}>
-            <div style={{fontSize:11,fontWeight:700,color:selMetodo===m.name?"#94a3b8":"#475569",
-              textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>{m.name}</div>
-            <div style={{fontSize:20,fontWeight:800,color:selMetodo===m.name?"#fff":"#1e293b"}}>{fmt(m.uscite)}</div>
-            <div style={{fontSize:11,color:selMetodo===m.name?"#64748b":"#64748b",marginTop:4}}>{m.count} operazioni</div>
-          </div>
-        ))}
-      </div>
-
-      {/* Bar chart */}
-      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:16}}>
-        <h3 style={{margin:"0 0 12px",fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:1.2}}>Uscite per metodo di pagamento</h3>
-        <ResponsiveContainer width="100%" height={Math.max(280,byMetodo.length*40)}>
-          <BarChart data={[...byMetodo].reverse()} layout="vertical" margin={{right:80}}>
-            <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
-            <XAxis type="number" tickFormatter={fmtK} tick={{fill:C.muted,fontSize:12}}/>
-            <YAxis type="category" dataKey="name" width={165} interval={0} tick={<ClickableTick onClick={(n)=>setSelMetodo(n===selMetodo?null:n)} activeNames={selMetodo?[selMetodo]:[]}/>}/>
-            <Tooltip content={<Tip/>}/>
-            <Bar dataKey="uscite" name="Uscite" radius={[0,4,4,0]} cursor="pointer"
-              background={{fill:"transparent",stroke:"none",strokeWidth:0,cursor:"pointer",onClick:(d)=>d&&d.name&&setSelMetodo(d.name===selMetodo?null:d.name)}}
-              onClick={(d)=>setSelMetodo(d.name===selMetodo?null:d.name)}
-              label={{position:"right",formatter:v=>fmt(v),fontSize:11,fill:C.muted}}>
-              {[...byMetodo].reverse().map((m,i)=>(
-                <Cell key={i} fill={METODI_COLORS[m.name]||PASTEL[i%PASTEL.length]}
-                  stroke="rgba(0,0,0,0.45)" strokeWidth={1}
-                  opacity={selMetodo&&m.name!==selMetodo?0.4:1}/>
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-
-      {/* Trend metodo selezionato — sempre presente (vuoto se nessuna selezione) */}
-      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:16}}>
-        <h3 style={{margin:"0 0 12px",fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:1.2}}>
-          📅 Andamento: {selMetodo||"— seleziona un metodo per vedere il dettaglio mensile"}
-        </h3>
-        {selMetodo&&trend.length>0?(
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={trend} margin={{top:18,right:10,left:10,bottom:5}}>
+      <div className="grid2">
+        {/* Barre metodi */}
+        <Box title="Uscite per metodo di pagamento" minH={460}>
+          <p style={{fontSize:12,color:C.muted,marginBottom:10}}>Clicca una barra per vedere il trend — {byMetodo.length} metodi</p>
+          <ResponsiveContainer width="100%" height={Math.max(400,byMetodo.length*40)}>
+            <BarChart data={[...byMetodo].reverse()} layout="vertical" margin={{right:80}}>
               <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
-              <XAxis dataKey="label" tick={{fill:C.muted,fontSize:10}} interval={trend.length>24?3:0}/>
-              <YAxis tickFormatter={fmtK} tick={{fill:C.muted,fontSize:10}} domain={[0,dm=>Math.ceil((dm||0)*1.15)]}/>
+              <XAxis type="number" tickFormatter={fmtK} tick={{fill:C.muted,fontSize:12}}/>
+              <YAxis type="category" dataKey="name" width={160} interval={0} tick={<ClickableTick onClick={(n)=>setSelMetodo(n===selMetodo?null:n)} activeNames={selMetodo?[selMetodo]:[]}/>}/>
               <Tooltip content={<Tip/>}/>
-              <Bar dataKey="value" name={selMetodo} fill={METODI_COLORS[selMetodo]||"#93c5fd"} stroke="rgba(0,0,0,0.45)" strokeWidth={1} radius={[3,3,0,0]}>
-                <LabelList dataKey="value" content={makeBarLabel(trend.length, fmtK)}/>
+              <Bar dataKey="uscite" name="Uscite" radius={[0,4,4,0]} cursor="pointer"
+                background={{fill:"transparent",stroke:"none",strokeWidth:0,cursor:"pointer",onClick:(d)=>d&&d.name&&setSelMetodo(d.name===selMetodo?null:d.name)}}
+                onClick={(d)=>setSelMetodo(d.name===selMetodo?null:d.name)}
+                label={{position:"right",formatter:v=>fmt(v),fontSize:11,fill:C.muted}}>
+                {[...byMetodo].reverse().map((m,i)=>(
+                  <Cell key={i} fill={METODI_COLORS[m.name]||PASTEL[i%PASTEL.length]}
+                    stroke="rgba(0,0,0,0.45)" strokeWidth={1}
+                    opacity={selMetodo&&m.name!==selMetodo?0.4:1}/>
+                ))}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
-        ):(
-          <div style={{height:220,display:"flex",alignItems:"center",justifyContent:"center",color:C.faint,fontSize:13,fontStyle:"italic",border:`1px dashed ${C.border}`,borderRadius:8}}>
-            Clicca una barra qui sopra per vedere l'andamento mensile del metodo
-          </div>
-        )}
+        </Box>
+        {/* Andamento */}
+        <Box title={selMetodo?(selYear&&selMonth?`📅 Giorni ${MONTHS_IT[selMonth-1]} ${selYear}: ${selMetodo}`:selYear?`📅 Mesi ${selYear}: ${selMetodo}`:`📅 Andamento: ${selMetodo}`):(selYear&&selMonth?`📅 Giorni ${MONTHS_IT[selMonth-1]} ${selYear} — tutti i metodi`:selYear?`📅 Mesi ${selYear} — tutti i metodi`:"📅 Andamento — tutti i metodi")} minH={460}>
+          {aggTotal>0&&(
+            <div style={{display:"flex",gap:12,marginBottom:14,flexWrap:"wrap"}}>
+              <div style={{background:"#eff6ff",borderRadius:8,padding:"8px 14px",fontSize:12}}>
+                <span style={{color:C.muted}}>Totale: </span>
+                <strong style={{color:"#3b82f6"}}>{fmt(selMetodo?metodoTotale.uscite:aggTotal)}</strong>
+              </div>
+              <div style={{background:"#f0fdf4",borderRadius:8,padding:"8px 14px",fontSize:12}}>
+                <span style={{color:C.muted}}>Operazioni: </span>
+                <strong style={{color:"#10b981"}}>{aggCount}</strong>
+              </div>
+              {selMetodo?(
+                <div style={{background:"#fefce8",borderRadius:8,padding:"8px 14px",fontSize:12}}>
+                  <span style={{color:C.muted}}>Media/volta: </span>
+                  <strong style={{color:"#ca8a04"}}>{fmt(metodoTotale.uscite/metodoTotale.count)}</strong>
+                </div>
+              ):(
+                <div style={{background:"#f1f5f9",borderRadius:8,padding:"8px 14px",fontSize:12}}>
+                  <span style={{color:C.muted}}>Metodi: </span>
+                  <strong style={{color:"#64748b"}}>{byMetodo.length}</strong>
+                </div>
+              )}
+            </div>
+          )}
+          <ResponsiveContainer width="100%" height={280}>
+            {selYear&&selMonth?(
+              <AreaChart data={trend} margin={{top:18,right:20,left:10,bottom:5}}>
+                <defs><linearGradient id="gMet" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#60a5fa" stopOpacity={0.3}/><stop offset="95%" stopColor="#60a5fa" stopOpacity={0}/></linearGradient></defs>
+                <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+                <XAxis dataKey="label" tick={{fill:C.muted,fontSize:12}} interval={0}/>
+                <YAxis tickFormatter={fmtK} tick={{fill:C.muted,fontSize:12}} domain={[0,dm=>Math.ceil((dm||0)*1.15)]}/>
+                <Tooltip content={<Tip/>}/>
+                <Area type="monotone" dataKey="value" name="Speso" stroke="#60a5fa" fill="url(#gMet)" strokeWidth={2.5} dot={{fill:"#60a5fa",r:3}} activeDot={{r:5}}>
+                  <LabelList dataKey="value" content={makeLineLabel(trend.length, fmtK)}/>
+                </Area>
+              </AreaChart>
+            ):(
+              <BarChart data={trend} margin={{top:18,right:10,left:10,bottom:5}}>
+                <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+                <XAxis dataKey="label" tick={{fill:C.muted,fontSize:12}} interval={trend.length>12?2:0}/>
+                <YAxis tickFormatter={fmtK} tick={{fill:C.muted,fontSize:12}} domain={[0,dm=>Math.ceil((dm||0)*1.15)]}/>
+                <Tooltip content={<Tip/>}/>
+                <Bar dataKey="value" name="Speso" fill={selMetodo?(METODI_COLORS[selMetodo]||"#93c5fd"):"#93c5fd"} stroke="rgba(0,0,0,0.45)" strokeWidth={1} radius={[3,3,0,0]}>
+                  <LabelList dataKey="value" content={makeBarLabel(trend.length, fmtK)}/>
+                </Bar>
+              </BarChart>
+            )}
+          </ResponsiveContainer>
+        </Box>
       </div>
 
       {/* Lista transazioni */}
