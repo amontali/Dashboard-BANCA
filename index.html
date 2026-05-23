@@ -414,7 +414,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v9.10 · 23 mag 2026";
+const VERSION="v9.10.1 · 23 mag 2026";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",minimumFractionDigits:0,maximumFractionDigits:0,useGrouping:true}).format(n||0);
@@ -1240,25 +1240,8 @@ function PanoramicaTab({allTxs,filteredTxs,selYears,selYear,selMonth,excInvest,b
   // Quando anno selezionato: usa i dati filtrati; altrimenti tutto lo storico
   const displayTxs=selYears.length>0?filteredTxs:allTxs;
   const agg=useMemo(()=>aggregate(displayTxs,excInvest),[displayTxs,excInvest]);
-  // Saldo attuale del conto = saldo iniziale più vecchio + tutti i movimenti (su TUTTO lo storico)
-  const saldoAttuale=useMemo(()=>{
-    if(!balanceSaldos||!Object.keys(balanceSaldos).length)return null;
-    const sorted=Object.entries(balanceSaldos).sort((a,b)=>{
-      const k=s=>{const[d,m,y]=s.split("/");return (y||"")+(m||"").padStart(2,"0")+(d||"").padStart(2,"0");};
-      return k(a[0]).localeCompare(k(b[0]));
-    });
-    const iniziale=sorted.find(([,v])=>v.tipo==="iniziale");
-    if(!iniziale)return null;
-    const movimenti=allTxs.reduce((s,t)=>s+(t.entrata||0)-(t.uscita||0),0);
-    return iniziale[1].valore+movimenti;
-  },[balanceSaldos,allTxs]);
   return(
     <div style={{display:"flex",flexDirection:"column",gap:16}}>
-      {saldoAttuale!=null&&(
-        <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
-          <Card label="Saldo attuale del conto" value={fmt(saldoAttuale)} sub="saldo iniziale + tutti i movimenti" color={saldoAttuale>=0?"#bbf7d0":"#fecaca"} icon="🏦"/>
-        </div>
-      )}
       <div className="grid2">
         <Box title={selYears.length>1?`Entrate vs Uscite — ${selYears.join(", ")}`:selYear?(selMonth?`Entrate vs Uscite — ${MONTHS_IT[selMonth-1]} ${selYear}`:`Entrate vs Uscite mensili — ${selYear}`):"Entrate vs Uscite per Anno"} minH={300}>
           {(()=>{
@@ -3957,15 +3940,17 @@ function App(){
             <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:10}}>
               <Card label="Entrate" value={"+"+fmt(agg.totalE)} sub={excInvest?"senza investimenti":periodLabel} color="#bbf7d0" icon="↑"/>
               <Card label="Uscite"  value={"-"+fmt(agg.totalU)} sub={excInvest?"senza investimenti":periodLabel} color="#fecaca" icon="↓"/>
-              <Card label="Saldo"   value={((agg.totalE-agg.totalU)>=0?"+":"-")+fmt(Math.abs(agg.totalE-agg.totalU))} sub={(agg.totalE-agg.totalU)>=0?"positivo":"negativo"} color={(agg.totalE-agg.totalU)>=0?"#bbf7d0":"#fecaca"} icon="≈"/>
+              <Card label="Saldo periodo"   value={((agg.totalE-agg.totalU)>=0?"+":"-")+fmt(Math.abs(agg.totalE-agg.totalU))} sub={"entrate − uscite ("+(excInvest?"senza invest.":"periodo")+")"} color={(agg.totalE-agg.totalU)>=0?"#bbf7d0":"#fecaca"} icon="≈"/>
               <Card label="Transaz." value={filteredTxs.length.toLocaleString()} sub={periodLabel} color="#ddd6fe" icon="#"/>
               {(()=>{
                 if(!balanceSaldos||!Object.keys(balanceSaldos).length)return null;
-                const entries=Object.entries(balanceSaldos).sort((a,b)=>b[0].localeCompare(a[0]));
-                const [lastDate,lastSaldo]=entries[0];
-                const delta=txs.filter(t=>t.date>lastDate).reduce((s,t)=>s+t.entrata-t.uscita,0);
-                const stimato=lastSaldo.valore+delta;
-                return <Card label="Saldo Conto" value={fmt(stimato)} sub={`stimato da ${lastDate}`} color={stimato>=0?"#bfdbfe":"#fecaca"} icon="🏦"/>;
+                // Ordina per DATA reale (dd/mm/yyyy → yyyymmdd), non alfabeticamente
+                const k=s=>{const[d,m,y]=s.split("/");return (y||"")+(m||"").padStart(2,"0")+(d||"").padStart(2,"0");};
+                const entries=Object.entries(balanceSaldos).sort((a,b)=>k(b[0]).localeCompare(k(a[0])));
+                // Preferisci il saldo FINALE più recente (dato reale dichiarato dalla banca)
+                const fin=entries.find(([,v])=>v.tipo==="finale")||entries[0];
+                const [lastDate,lastSaldo]=fin;
+                return <Card label="Saldo conto reale" value={fmt(lastSaldo.valore)} sub={`dichiarato dalla banca · ${lastDate}`} color={lastSaldo.valore>=0?"#bfdbfe":"#fecaca"} icon="🏦"/>;
               })()}
             </div>
             {/* CHROME TABS */}
