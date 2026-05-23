@@ -414,7 +414,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v9.8.1 · 23 mag 2026";
+const VERSION="v9.8.2 · 23 mag 2026";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",minimumFractionDigits:0,maximumFractionDigits:0,useGrouping:true}).format(n||0);
@@ -2304,6 +2304,13 @@ function InvestimentiTab({txs, balanceSaldos}){
           Non include asset ancora in portafoglio né plusvalenze latenti.
         </p>
       </Box>
+      {(()=>{
+        const invRows=txs.filter(t=>t.categoria==="📈 Investimenti"||t.categoria==="Investimenti");
+        if(!invRows.length)return null;
+        return <TransactionTable rows={invRows}
+          title={`📋 Operazioni di investimento (${invRows.length} record)`}
+          onRuleAdded={()=>{}}/>;
+      })()}
     </div>
   );
 }
