@@ -415,7 +415,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v9.11 · 23 mag 2026";
+const VERSION="v9.11.1 · 23 mag 2026";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",minimumFractionDigits:0,maximumFractionDigits:0,useGrouping:true}).format(n||0);
@@ -892,10 +892,10 @@ function parseSatispay(arrayBuffer, owner){
   if(!window.XLSX)return{rows:[],meta:{error:"Libreria Excel non caricata. Ricarica la pagina e riprova."}};
   let ws;
   try{
-    const wb=window.XLSX.read(arrayBuffer,{type:"array"});
+    const wb=window.XLSX.read(arrayBuffer,{type:"array",cellDates:true});
     ws=wb.Sheets[wb.SheetNames[0]];
   }catch(e){return{rows:[],meta:{error:"Impossibile leggere il file Excel."}};}
-  const data=window.XLSX.utils.sheet_to_json(ws,{header:1,raw:false});
+  const data=window.XLSX.utils.sheet_to_json(ws,{header:1,raw:true});
   if(!data.length)return{rows:[],meta:{error:"Il file è vuoto."}};
   const header=(data[0]||[]).map(h=>(h||"").toString().trim().toLowerCase());
   const ci={data:header.indexOf("data"),nome:header.indexOf("nome"),desc:header.indexOf("descrizione"),
@@ -909,11 +909,23 @@ function parseSatispay(arrayBuffer, owner){
     const r=data[i]; if(!r||r[ci.data]==null)continue;
     const stato=(r[ci.stato]||"").toString();
     if(stato.includes("Annullato")||stato.includes("Rifiutato")){nScartate++;continue;}
-    // Data: "2024-12-23 03:46:33" → ISO date
-    const ds=(r[ci.data]||"").toString().slice(0,10);
-    if(!/^\d{4}-\d{2}-\d{2}$/.test(ds))continue;
-    const iso=ds;
-    let imp=parseFloat((r[ci.importo]||"0").toString().replace(",","."));
+    // Data: può essere un oggetto Date (cellDates) o una stringa "2024-12-23 03:46:33"
+    let iso="";
+    const dv=r[ci.data];
+    if(dv instanceof Date && !isNaN(dv)){
+      const y=dv.getFullYear(), mo=String(dv.getMonth()+1).padStart(2,"0"), d=String(dv.getDate()).padStart(2,"0");
+      iso=`${y}-${mo}-${d}`;
+    }else{
+      const s=(dv||"").toString().trim();
+      let mm=s.match(/^(\d{4})-(\d{2})-(\d{2})/); // ISO
+      if(mm)iso=`${mm[1]}-${mm[2]}-${mm[3]}`;
+      else{
+        mm=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/); // formato US/locale m/d/y
+        if(mm){const y=mm[3].length===2?"20"+mm[3]:mm[3];iso=`${y}-${mm[2].padStart(2,"0")}-${mm[1].padStart(2,"0")}`;}
+      }
+    }
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(iso))continue;
+    let imp=parseFloat((r[ci.importo]==null?"0":r[ci.importo]).toString().replace(",","."));
     if(isNaN(imp))continue;
     const tipo=(r[ci.tipo]||"").toString();
     const nome=(r[ci.nome]||"").toString().trim();
