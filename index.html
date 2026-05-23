@@ -281,6 +281,26 @@ const NEUTRAL_CATS=["📈 Investimenti","💰 Giro Interno"];
 // ── MACRO-CATEGORIE ───────────────────────────────────────────────────────────
 // Raggruppamento di default categoria → macro (l'utente può modificarlo)
 const MACRO_LIST=["🏠 Casa & Quotidianità","🚗 Mobilità","🎯 Tempo Libero","💆 Persona","💼 Business","💰 Finanza & Obblighi","➖ Nessuna"];
+// Categorie che NON devono avere una macro (bloccate nell'interfaccia, con motivo per il tooltip).
+// Sono coerenti con ciò che escludiamo dal Centro Revisione: ciò che non si rivede, non si assegna a una macro.
+const MACRO_LOCKED={
+  "Stipendio":"È un'entrata, non una spesa di consumo: non si assegna a una macro-area.",
+  "Prelievi ATM":"È solo contante che cambia forma, non una spesa per area di vita.",
+  "Carta di Credito":"È un aggregatore multi-categoria: la macro si applica alle transazioni di dettaglio (dopo la riconciliazione), non alla categoria aggregata.",
+  "Intermediari di Pagamento":"È un aggregatore multi-categoria (PayPal, ecc.): la macro va sul dettaglio, non sull'aggregato.",
+  "💰 Giro Interno":"È un trasferimento interno, non una spesa: neutro per definizione.",
+  "📈 Investimenti":"È un flusso patrimoniale, non spesa di consumo.",
+  "Investimenti":"È un flusso patrimoniale, non spesa di consumo.",
+  "Spese Bancarie":"Costo tecnico del conto, non spesa per area di vita.",
+  "Tasse":"Obbligo fiscale tecnico, già leggibile a sé.",
+  "Rimborsi":"È un'entrata di storno, non una spesa.",
+  "Cashback PayPal":"È un accredito, non una spesa.",
+  "Cashback Satispay":"È un accredito, non una spesa.",
+  "PayPal — spese a cavallo periodo":"Voce tecnica di riconciliazione, non assegnabile.",
+  "Bonifici":"Categoria transitoria: l'obiettivo è svuotarla categorizzando le voci in Revisione, non assegnarle una macro.",
+  "Altro":"Categoria transitoria: l'obiettivo è svuotarla categorizzando le voci in Revisione, non assegnarle una macro.",
+};
+function isMacroLocked(cat){return Object.prototype.hasOwnProperty.call(MACRO_LOCKED,cat);}
 const MACRO_DEFAULT={
   "Supermercato":"🏠 Casa & Quotidianità","Casa / Brico":"🏠 Casa & Quotidianità","Utenze":"🏠 Casa & Quotidianità",
   "Telefonia":"🏠 Casa & Quotidianità","Elettronica":"🏠 Casa & Quotidianità","E-commerce":"🏠 Casa & Quotidianità","Animali":"🏠 Casa & Quotidianità",
@@ -293,7 +313,7 @@ const MACRO_DEFAULT={
 };
 function macroGet(){try{const d=localStorage.getItem("userMacros");return d?JSON.parse(d):{...MACRO_DEFAULT};}catch{return{...MACRO_DEFAULT};}}
 function macroSave(m){try{localStorage.setItem("userMacros",JSON.stringify(m))}catch{}}
-function macroOf(cat){const m=macroGet();return m[cat]||"➖ Nessuna";}
+function macroOf(cat){if(isMacroLocked(cat))return"➖ Nessuna";const m=macroGet();return m[cat]||"➖ Nessuna";}
 
 function rulesGet(){try{const d=localStorage.getItem("userRules");return d?JSON.parse(d):[]}catch{return[]}}
 function rulesSave(r){try{localStorage.setItem("userRules",JSON.stringify(r))}catch{}}
@@ -394,7 +414,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v9.7.1 · 22 mag 2026";
+const VERSION="v9.7.3 · 22 mag 2026";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",minimumFractionDigits:0,maximumFractionDigits:0,useGrouping:true}).format(n||0);
@@ -1352,7 +1372,7 @@ function SunburstChart({txs, excInvest, selCats, toggleCat}) {
     svg.selectAll("path.slice")
       .data(arcs).join("path").attr("class","slice")
       .attr("d", arc).attr("fill", d=>d.data.color)
-      .attr("stroke","#fff").attr("stroke-width",2)
+      .attr("stroke","rgba(0,0,0,0.45)").attr("stroke-width",1)
       .attr("opacity", d=>{
         if(path.length!==0 || !selCats || selCats.length===0) return 1;
         // Al livello macro: evidenzia le macro che contengono una categoria selezionata altrove
@@ -1418,31 +1438,31 @@ function SunburstChart({txs, excInvest, selCats, toggleCat}) {
     const center = svg.append("g").style("cursor", path.length>0?"pointer":"default")
       .on("click",()=>{ if(path.length>0) setPath(p=>p.slice(0,-1)); });
     center.append("circle").attr("r", inner-4).attr("fill","#fff").attr("opacity", path.length>0?0.01:0); // area cliccabile
-    // Etichetta centrale: a capo su 2 righe invece di troncare
+    // Costruisce le righe del centro come lista, poi le posiziona con y assoluti centrati (no sovrapposizioni)
     (function(){
       const lbl=level.centerLabel||"";
-      const lines=lbl.length<=18?[lbl]:(function(){
+      const lblLines=lbl.length<=16?[lbl]:(function(){
         const words=lbl.split(" ");const out=[];let cur="";
-        for(const w of words){if((cur+" "+w).trim().length<=18){cur=(cur+" "+w).trim();}else{if(cur)out.push(cur);cur=w;}}
+        for(const w of words){if((cur+" "+w).trim().length<=16){cur=(cur+" "+w).trim();}else{if(cur)out.push(cur);cur=w;}}
         if(cur)out.push(cur);return out.slice(0,2);
       })();
-      const baseDy=lines.length>1?-2.1:-1.3;
-      lines.forEach((ln,i)=>{
-        center.append("text").attr("text-anchor","middle").attr("dy",`${baseDy+i*1.05}em`)
-          .attr("fill","#64748b").attr("font-size",10).attr("font-weight","700").text(ln);
+      // Modello righe: {text, size, color, weight, gap (spazio sopra in px)}
+      const rows=[];
+      lblLines.forEach((ln,i)=>rows.push({text:ln,size:10,color:"#64748b",weight:700,h:13}));
+      rows.push({text:fmtK(level.centerVal),size:18,color:"#1e293b",weight:800,h:22,gap:3});
+      rows.push({text:path.length===0?"100% delle uscite":`${level.pctOfGrand}% del totale`,size:10,color:"#94a3b8",weight:400,h:13,gap:2});
+      if(path.length>0)rows.push({text:"↑ torna su",size:9,color:"#60a5fa",weight:700,h:12,gap:4});
+      const totalH=rows.reduce((s,r)=>s+r.h+(r.gap||0),0);
+      let y=-totalH/2;
+      rows.forEach(r=>{
+        y+=(r.gap||0);
+        center.append("text").attr("text-anchor","middle")
+          .attr("y", y+r.h*0.72)
+          .attr("fill",r.color).attr("font-size",r.size).attr("font-weight",r.weight)
+          .text(r.text);
+        y+=r.h;
       });
     })();
-    center.append("text").attr("text-anchor","middle").attr("dy","0.1em")
-      .attr("fill","#1e293b").attr("font-size",18).attr("font-weight","800")
-      .text(fmtK(level.centerVal));
-    center.append("text").attr("text-anchor","middle").attr("dy","1.5em")
-      .attr("fill","#94a3b8").attr("font-size",10)
-      .text(path.length===0?"100% delle uscite":`${level.pctOfGrand}% del totale`);
-    if(path.length>0){
-      center.append("text").attr("text-anchor","middle").attr("dy","3em")
-        .attr("fill","#60a5fa").attr("font-size",9).attr("font-weight","700")
-        .text("↑ torna su");
-    }
   }, [level, path, selCats]);
 
   const crumbs = ["Tutte le macro", ...path];
@@ -2484,18 +2504,31 @@ Tutte le transazioni verranno spostate in "Altro".`))return;
           })}
         </Box>
         <Box title="Assegna categoria → macro">
+          <p style={{fontSize:11,color:C.muted,marginBottom:10,lineHeight:1.5}}>
+            Le categorie <span style={{color:"#94a3b8"}}>🔒 grigie</span> non sono assegnabili (tecniche, aggregatori o transitorie). Passa il mouse sul lucchetto per sapere perché.
+          </p>
           <div style={{display:"flex",flexDirection:"column",gap:6}}>
-            {cats.filter(c=>!NEUTRAL_CATS.includes(c)&&c!=="Altro").map(c=>(
-              <div key={c} style={{display:"flex",alignItems:"center",gap:10,padding:"5px 8px",borderRadius:6,background:"#f8fafc"}}>
-                <span style={{display:"inline-flex",alignItems:"center",gap:5,minWidth:200,fontSize:13,fontWeight:600}}>
-                  <span style={{width:10,height:10,borderRadius:3,background:getCatColor(c),flexShrink:0}}/>{c}
+            {cats.map(c=>{
+              const locked=isMacroLocked(c);
+              return(
+              <div key={c} title={locked?MACRO_LOCKED[c]:""}
+                style={{display:"flex",alignItems:"center",gap:10,padding:"5px 8px",borderRadius:6,background:locked?"#f1f5f9":"#f8fafc",opacity:locked?0.7:1}}>
+                <span style={{display:"inline-flex",alignItems:"center",gap:5,minWidth:200,fontSize:13,fontWeight:600,color:locked?"#94a3b8":C.text}}>
+                  <span style={{width:10,height:10,borderRadius:3,background:locked?"#cbd5e1":getCatColor(c),flexShrink:0}}/>
+                  {c}
+                  {locked&&<span title={MACRO_LOCKED[c]} style={{cursor:"help",fontSize:12}}>🔒</span>}
                 </span>
-                <select value={macros[c]||"➖ Nessuna"} onChange={e=>setMacroFor(c,e.target.value)}
-                  style={{flex:1,padding:"6px 10px",border:`1px solid ${C.border}`,borderRadius:6,fontSize:13}}>
-                  {MACRO_LIST.map(mc=><option key={mc} value={mc}>{mc}</option>)}
-                </select>
+                {locked?(
+                  <span style={{flex:1,fontSize:12,color:"#94a3b8",fontStyle:"italic"}}>non assegnabile</span>
+                ):(
+                  <select value={macros[c]||"➖ Nessuna"} onChange={e=>setMacroFor(c,e.target.value)}
+                    style={{flex:1,padding:"6px 10px",border:`1px solid ${C.border}`,borderRadius:6,fontSize:13}}>
+                    {MACRO_LIST.map(mc=><option key={mc} value={mc}>{mc}</option>)}
+                  </select>
+                )}
               </div>
-            ))}
+              );
+            })}
           </div>
         </Box>
       </>)}
