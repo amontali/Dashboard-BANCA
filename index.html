@@ -10,6 +10,7 @@
   <script src="https://unpkg.com/recharts@2.4.3/umd/Recharts.js"></script>
   <script src="https://unpkg.com/@babel/standalone@7.23.6/babel.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
     body{background:#f8fafc;font-family:system-ui,-apple-system,sans-serif;color:#1e293b;height:100vh;overflow:hidden}
@@ -414,7 +415,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v9.10.1 · 23 mag 2026";
+const VERSION="v9.11 · 23 mag 2026";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",minimumFractionDigits:0,maximumFractionDigits:0,useGrouping:true}).format(n||0);
@@ -881,6 +882,67 @@ function parseCartaCredito(text, owner){
   }
   return{rows,meta:{nSpese,nEntrate,nScartate,minDate,maxDate,format:isNewFormat?"2025":"2019",
     totSpese:rows.reduce((s,r)=>s+r.uscita,0)}};
+}
+
+// ── PARSER SATISPAY (.xlsx) ───────────────────────────────────────────────────
+// Riceve un ArrayBuffer (file xlsx). Usa SheetJS (window.XLSX).
+// Tipi: 🏬 Negozio / 👤 Persona = spese · 💵 Cashback / 🏆 Premio = entrate
+//       🏦 Dalla Banca / Verso la Banca = ricariche/prelievi (neutri) · ❓ Altro = commissioni
+function parseSatispay(arrayBuffer, owner){
+  if(!window.XLSX)return{rows:[],meta:{error:"Libreria Excel non caricata. Ricarica la pagina e riprova."}};
+  let ws;
+  try{
+    const wb=window.XLSX.read(arrayBuffer,{type:"array"});
+    ws=wb.Sheets[wb.SheetNames[0]];
+  }catch(e){return{rows:[],meta:{error:"Impossibile leggere il file Excel."}};}
+  const data=window.XLSX.utils.sheet_to_json(ws,{header:1,raw:false});
+  if(!data.length)return{rows:[],meta:{error:"Il file è vuoto."}};
+  const header=(data[0]||[]).map(h=>(h||"").toString().trim().toLowerCase());
+  const ci={data:header.indexOf("data"),nome:header.indexOf("nome"),desc:header.indexOf("descrizione"),
+    importo:header.indexOf("importo"),tipo:header.indexOf("tipo"),stato:header.indexOf("stato")};
+  if(ci.data<0||ci.importo<0||ci.tipo<0){
+    return{rows:[],meta:{error:`Questo non sembra un report Satispay valido.\nColonne attese: Data, Importo, Tipo.\nTrovate: ${(data[0]||[]).join(", ")}.`}};
+  }
+  const rows=[];
+  let nSpese=0,nEntrate=0,nNeutre=0,nScartate=0,minDate="9999-99-99",maxDate="0000-00-00";
+  for(let i=1;i<data.length;i++){
+    const r=data[i]; if(!r||r[ci.data]==null)continue;
+    const stato=(r[ci.stato]||"").toString();
+    if(stato.includes("Annullato")||stato.includes("Rifiutato")){nScartate++;continue;}
+    // Data: "2024-12-23 03:46:33" → ISO date
+    const ds=(r[ci.data]||"").toString().slice(0,10);
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(ds))continue;
+    const iso=ds;
+    let imp=parseFloat((r[ci.importo]||"0").toString().replace(",","."));
+    if(isNaN(imp))continue;
+    const tipo=(r[ci.tipo]||"").toString();
+    const nome=(r[ci.nome]||"").toString().trim();
+    const desc=(r[ci.desc]||"").toString().trim();
+    if(iso<minDate)minDate=iso;
+    if(iso>maxDate)maxDate=iso;
+    let uscita=0,entrata=0,categoria,vendor;
+    if(tipo.includes("Dalla Banca")||tipo.includes("Verso la Banca")){
+      // Ricarica o prelievo wallet → neutro (giro interno)
+      vendor="Ricarica Satispay"; categoria="💰 Giro Interno";
+      if(imp<0)uscita=Math.abs(imp); else entrata=imp; nNeutre++;
+    }else if(tipo.includes("Cashback")||tipo.includes("Premio")){
+      vendor="Satispay"; categoria=applyAlias("Cashback Satispay"); entrata=Math.abs(imp); nEntrate++;
+    }else if(imp<0){
+      // Spesa reale: negozio o persona
+      if(tipo.includes("Persona")){vendor=nome||"Pagamento a persona";categoria=applyAlias("Altro");}
+      else{const cl=extractAndClassify(nome,nome+" "+desc,rulesGet());vendor=cl.vendor;categoria=cl.categoria;}
+      uscita=Math.abs(imp); nSpese++;
+    }else if(imp>0){
+      vendor=nome||"Entrata Satispay"; categoria=applyAlias("Altro"); entrata=imp; nEntrate++;
+    }else continue;
+    rows.push({
+      date:iso,ym:iso.slice(0,7),year:+iso.slice(0,4),month:+iso.slice(5,7),
+      uscita,entrata,causale:"Satispay",descrizione:(nome+(desc?" · "+desc:"")).trim(),
+      categoria,vendor,metodo:"Satispay",source:"satispay",owner:owner||"Andrea"
+    });
+  }
+  return{rows,meta:{nSpese,nEntrate,nNeutre,nScartate,minDate,maxDate,
+    totSpese:rows.filter(r=>r.uscita>0).reduce((s,r)=>s+r.uscita,0)}};
 }
 
 
@@ -2852,7 +2914,7 @@ function Setup({onSave}){
 // ── METODI DI PAGAMENTO TAB ───────────────────────────────────────────────────
 const METODI_COLORS={
   "Carta di Debito":"#93c5fd","Carta di Credito":"#c4b5fd","Bonifico":"#6ee7b7","Domiciliazione SDD":"#fcd34d",
-  "MAV/RAV":"#fdba74","F24":"#f87171","Prelievo ATM":"#c4b5fd",
+  "MAV/RAV":"#fdba74","F24":"#f87171","Prelievo ATM":"#c4b5fd","Satispay":"#fb7185","PayPal":"#60a5fa",
   "Giroconto":"#a5f3fc","Spese Bancarie":"#fca5a5","Stipendio":"#bbf7d0","Altro":"#cbd5e1"
 };
 
@@ -3748,10 +3810,73 @@ function App(){
     setSyncing(false);setTimeout(()=>setMsg(""),6000);
   }
 
+  // ── IMPORT SATISPAY con riconciliazione ────────────────────────────────────
+  async function handleSatispayImport(files, owner){
+    files=Array.isArray(files)?files:Array.from(files.target?.files||[]);
+    if(!files.length)return;
+    owner=owner||"Andrea";
+    setMsg("⏳ Analizzo i report Satispay...");
+    let allRows=[],meta={nSpese:0,nEntrate:0,nNeutre:0,nScartate:0,minDate:"9999-99-99",maxDate:"0000-00-00",totSpese:0};
+    for(const f of files){
+      const{rows,meta:m}=parseSatispay(await f.arrayBuffer(),owner);
+      if(m&&m.error){window.alert("⚠️ "+f.name+"\n\n"+m.error);setMsg("");return;}
+      allRows.push(...rows);
+      meta.nSpese+=m.nSpese;meta.nEntrate+=m.nEntrate;meta.nNeutre+=m.nNeutre;meta.nScartate+=m.nScartate;meta.totSpese+=m.totSpese;
+      if(m.minDate<meta.minDate)meta.minDate=m.minDate;
+      if(m.maxDate>meta.maxDate)meta.maxDate=m.maxDate;
+    }
+    if(!allRows.length){setMsg("❌ Nessuna transazione Satispay valida.");setTimeout(()=>setMsg(""),4000);return;}
+    // Re-import pulito: rimuovi import Satispay precedenti dello stesso periodo
+    let base=txs.filter(t=>!(t.source==="satispay"&&t.date>=meta.minDate&&t.date<=meta.maxDate));
+    // RICONCILIAZIONE: neutralizza le ricariche Satispay nel conto, nel periodo coperto
+    const bankSat=base.filter(t=>
+      t.source!=="satispay" && t.uscita>0 &&
+      /satispay/i.test(t.causale+" "+t.descrizione+" "+(t.vendor||"")) &&
+      t.date>=meta.minDate && t.date<=meta.maxDate
+    );
+    const bankKeys=new Set(bankSat.map(t=>t.date+"|"+t.uscita+"|"+t.causale));
+    let updated=base.map(t=>{
+      const key=t.date+"|"+t.uscita+"|"+t.causale;
+      if(bankKeys.has(key))return{...t,categoria:"💰 Giro Interno",vendor:"Ricarica Satispay",_reconciled:true};
+      return t;
+    });
+    updated.push(...allRows);
+    updated.sort((a,b)=>a.date.localeCompare(b.date));
+    setTxs(updated);lsSave(updated);
+    setMsg(`✅ Satispay: ${meta.nSpese} spese + ${meta.nEntrate} entrate + ${bankSat.length} ricariche neutralizzate. Sync Sheets...`);
+    setSyncing(true);
+    try{
+      await gsClear(url);
+      await gsWrite(url,updated,(done,tot)=>setMsg(`☁️ Sheets: ${done}/${tot} blocchi · ${Math.round(done/tot*100)}%`));
+      setMsg(`✅ Satispay importato · ${updated.length} transazioni totali.`);
+    }catch{setMsg("⚠️ Importato in locale. Sheets non aggiornato.");}
+    setSyncing(false);setTimeout(()=>setMsg(""),6000);
+  }
+
   // ── RICONOSCIMENTO FONTE (tasto unico "Carica dati") ───────────────────────
   async function detectSource(file){
-    const txt=await file.text();
+    const nameLow=(file.name||"").toLowerCase();
+    // File Excel: Satispay esporta in .xlsx. Riconosci dall'estensione PRIMA di leggere come testo.
+    if(nameLow.endsWith(".xlsx")||nameLow.endsWith(".xls")){
+      // Distingui Satispay da altri xlsx leggendo l'header con SheetJS
+      try{
+        const buf=await file.arrayBuffer();
+        const wb=window.XLSX.read(buf,{type:"array"});
+        const ws=wb.Sheets[wb.SheetNames[0]];
+        const firstRow=window.XLSX.utils.sheet_to_json(ws,{header:1,raw:false})[0]||[];
+        const hl=firstRow.map(h=>(h||"").toString().toLowerCase()).join("|");
+        if(hl.includes("tipo")&&hl.includes("importo")&&(hl.includes("disponibilità")||hl.includes("stato")))
+          return "satispay";
+        return "xlsx_sconosciuto";
+      }catch{return "binario_illeggibile";}
+    }
+    // CSV di testo
+    let txt;
+    try{ txt=await file.text(); }catch{ return "binario_illeggibile"; }
     const firstLine=(txt.replace(/^\ufeff/,"").split("\n")[0]||"").trim();
+    // Se la prima riga è piena di caratteri di controllo/binari → non è un CSV valido
+    const ctrlCount=(firstLine.match(/[\x00-\x08\x0e-\x1f\ufffd]/g)||[]).length;
+    if(ctrlCount>5)return "binario_illeggibile";
     const low=firstLine.toLowerCase();
     // Carta ING (credito o debito): colonne separate da ; con "data operazione"
     if(low.includes("data operazione")&&low.includes("descrizione operazione")){
@@ -3775,6 +3900,26 @@ function App(){
       setRouteModal({source:"paypal",files,title:"🅿️ Estratto PayPal",
         body:"Ho riconosciuto un estratto PayPal. Le spese verranno categorizzate e gli addebiti PayPal nel conto verranno neutralizzati automaticamente (riconciliazione per periodo).",
         action:"paypal"});
+      return;
+    }
+    if(src==="satispay"){
+      let minD="9999-99-99",maxD="0000-00-00",nrow=0;
+      for(const f of files){const{rows}=parseSatispay(await f.arrayBuffer(),"Andrea");rows.forEach(r=>{if(r.date<minD)minD=r.date;if(r.date>maxD)maxD=r.date;nrow++;});}
+      setRouteModal({source:"satispay",files,title:"📲 Report Satispay",
+        body:`Ho riconosciuto ${files.length>1?files.length+" report":"un report"} Satispay (${nrow} movimenti, periodo ${minD} → ${maxD}). Le spese verranno categorizzate, le ricariche dal conto neutralizzate e i cashback registrati come entrate.`,
+        action:"satispay"});
+      return;
+    }
+    if(src==="xlsx_sconosciuto"){
+      setRouteModal({source:"sconosciuto",files,danger:true,title:"❓ File Excel non riconosciuto",
+        body:"Ho letto il file Excel ma non corrisponde a un formato che conosco (Satispay).\n\nSe è un altro tipo di estratto, per ora non è supportato. Verifica di aver scaricato il report giusto.",
+        action:"blocked"});
+      return;
+    }
+    if(src==="binario_illeggibile"){
+      setRouteModal({source:"sconosciuto",files,danger:true,title:"⚠️ File non leggibile",
+        body:"Questo file non sembra un CSV di testo né un Excel valido. Potrebbe essere un formato non supportato o un file danneggiato.\n\nL'app NON ha caricato nulla. Verifica il file e riprova.",
+        action:"blocked"});
       return;
     }
     if(src==="cartacredito"){
@@ -3879,7 +4024,7 @@ function App(){
               ⬆️ Carica dati
             </button>
             {/* Hidden file inputs */}
-            <input id="inp-unified" type="file" accept=".csv,.CSV" multiple style={{display:"none"}} onChange={e=>{const fs=Array.from(e.target.files);if(fs.length)analyzeAndRoute(fs);e.target.value="";}}/>
+            <input id="inp-unified" type="file" accept=".csv,.CSV,.xlsx,.xls" multiple style={{display:"none"}} onChange={e=>{const fs=Array.from(e.target.files);if(fs.length)analyzeAndRoute(fs);e.target.value="";}}/>
             <input id="inp-paypal" type="file" accept=".csv,.CSV" multiple style={{display:"none"}} onChange={e=>{const fs=Array.from(e.target.files);if(fs.length)handlePayPalImport(fs);e.target.value="";}}/>
             <input id="inp-cc" type="file" accept=".csv,.CSV" multiple style={{display:"none"}} onChange={e=>{const fs=Array.from(e.target.files);if(fs.length)handleCartaCreditoImport(fs);e.target.value="";}}/>
             <input id="inp-add" type="file" accept=".csv" multiple style={{display:"none"}} onChange={e=>{const fs=Array.from(e.target.files);if(fs.length)handleUpload(fs);e.target.value="";}}/>
@@ -4102,6 +4247,17 @@ function App(){
               <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
                 <button onClick={()=>setRouteModal(null)} style={{padding:"9px 18px",border:`1px solid ${C.border}`,borderRadius:8,background:"#f8fafc",color:C.muted,fontWeight:600,fontSize:13,cursor:"pointer"}}>Annulla</button>
                 <button onClick={()=>{const fs=routeModal.files;setRouteModal(null);handleCartaCreditoImport(fs);}} style={{padding:"9px 22px",border:"none",borderRadius:8,background:"#2563eb",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer"}}>Importa Carta di Credito</button>
+              </div>
+            )}
+            {routeModal.action==="satispay"&&(
+              <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+                <button onClick={()=>setRouteModal(null)} style={{padding:"9px 18px",border:`1px solid ${C.border}`,borderRadius:8,background:"#f8fafc",color:C.muted,fontWeight:600,fontSize:13,cursor:"pointer"}}>Annulla</button>
+                <button onClick={()=>{const fs=routeModal.files;setRouteModal(null);handleSatispayImport(fs);}} style={{padding:"9px 22px",border:"none",borderRadius:8,background:"#2563eb",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer"}}>Importa Satispay</button>
+              </div>
+            )}
+            {routeModal.action==="blocked"&&(
+              <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+                <button onClick={()=>setRouteModal(null)} style={{padding:"9px 22px",border:"none",borderRadius:8,background:"#16a34a",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer"}}>Ho capito</button>
               </div>
             )}
             {routeModal.action==="cartadebito_blocked"&&(
