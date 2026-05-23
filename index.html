@@ -414,7 +414,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v9.8.2 · 23 mag 2026";
+const VERSION="v9.8.3 · 23 mag 2026";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",minimumFractionDigits:0,maximumFractionDigits:0,useGrouping:true}).format(n||0);
@@ -3334,6 +3334,7 @@ function App(){
   const [url,setUrl]=useState(null);
   const [txs,setTxs]=useState([]);
   const [syncing,setSyncing]=useState(false);
+  const [pendingSync,setPendingSync]=useState(false);
   const [msg,setMsg]=useState("");
   const [tab,setTab]=useState("panoramica");
   const [excInvest,setExcInvest]=useState(true);
@@ -3380,6 +3381,19 @@ function App(){
     else setSetup(true);
     setReady(true);
   },[]);
+
+  // Avvisa se si chiude/ricarica la pagina mentre c'è una sincronizzazione in corso o in sospeso
+  useEffect(()=>{
+    const h=e=>{
+      if(syncing||pendingSync){
+        e.preventDefault();
+        e.returnValue="Una sincronizzazione con Google Sheets è in corso. Se esci ora, le ultime modifiche potrebbero non essere salvate.";
+        return e.returnValue;
+      }
+    };
+    window.addEventListener("beforeunload",h);
+    return()=>window.removeEventListener("beforeunload",h);
+  },[syncing,pendingSync]);
 
   async function syncFrom(u,localCount){
     setSyncing(true);setMsg("🔄 Sincronizzo con Google Sheets...");
@@ -3903,6 +3917,27 @@ function App(){
                 lsSave(updated);setTxs([...updated]); // forza re-render
               }
               if(!skipReapply&&url)settingsPush(url);
+              // IMPORTANTE: una modifica "solo questo record" cambia una TRANSAZIONE,
+              // quindi va sincronizzata su Sheets (gsWrite), non basta settingsPush.
+              // Per non fare un sync completo dopo OGNI revisione (lento), usiamo un
+              // debounce: accumula le modifiche e sincronizza ~4s dopo l'ultima.
+              if(skipReapply&&url){
+                setPendingSync(true);
+                if(window.__revSyncTimer)clearTimeout(window.__revSyncTimer);
+                setMsg("📝 Modifica salvata in locale — sincronizzo tra poco...");
+                window.__revSyncTimer=setTimeout(()=>{
+                  const cur=lsGet();
+                  setSyncing(true);setMsg("☁️ Salvo le modifiche su Sheets...");
+                  (async()=>{
+                    try{
+                      await gsClear(url);
+                      await gsWrite(url,cur,(done,tot)=>setMsg(`☁️ Sheets: ${done}/${tot} blocchi · ${Math.round(done/tot*100)}%`));
+                      setMsg("✅ Modifiche salvate su Sheets.");
+                    }catch{setMsg("⚠️ Modifiche salvate solo in locale — Sheets non aggiornato.");}
+                    setSyncing(false);setPendingSync(false);setTimeout(()=>setMsg(""),4000);
+                  })();
+                },4000);
+              }
             }}/>}
             {tab==="regole"&&<RulesTab gsUrl={url} txs={txs} onRulesChange={()=>{
               const rules=rulesGet();
