@@ -415,7 +415,7 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v9.11.1 · 23 mag 2026";
+const VERSION="v9.12 · 23 mag 2026";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",minimumFractionDigits:0,maximumFractionDigits:0,useGrouping:true}).format(n||0);
@@ -2237,7 +2237,7 @@ function CategorieTab({txs,excInvest,selYear,selMonth,selYears,selMonths,onRuleA
   );
 }
 
-function VenditoriTab({allTxs,filteredTxs,selYear,selMonth,selYears,selMonths}){
+function VenditoriTab({allTxs,filteredTxs,excInvest,selYear,selMonth,selYears,selMonths}){
   const [catFilter,setCatFilter]=useState("");
   const [selVendor,setSelVendor]=useState(null);
   useEffect(()=>{
@@ -2245,19 +2245,18 @@ function VenditoriTab({allTxs,filteredTxs,selYear,selMonth,selYears,selMonths}){
     window.addEventListener("keydown",handler);
     return()=>window.removeEventListener("keydown",handler);
   },[]);
-  const [showInvest,setShowInvest]=useState(false);
-  const categories=useMemo(()=>[...new Set(allTxs.filter(t=>t.uscita>0&&t.categoria!=="📈 Investimenti").map(t=>t.categoria))].sort(),[allTxs]);
+  const categories=useMemo(()=>[...new Set(allTxs.filter(t=>t.uscita>0&&(!excInvest||!NEUTRAL_CATS.includes(t.categoria))).map(t=>t.categoria))].sort(),[allTxs,excInvest]);
   const vendors=useMemo(()=>{
     let base=catFilter?filteredTxs.filter(t=>t.categoria===catFilter):filteredTxs;
-    if(!showInvest)base=base.filter(t=>t.categoria!=="📈 Investimenti");
+    if(excInvest)base=base.filter(t=>!NEUTRAL_CATS.includes(t.categoria));
     return aggregateVendors(base,"").slice(0,20);
-  },[filteredTxs,catFilter]);
+  },[filteredTxs,catFilter,excInvest]);
   const vendorTrend=useMemo(()=>{
     const base=catFilter?allTxs.filter(t=>t.categoria===catFilter):allTxs;
     // Se nessun fornitore selezionato → andamento aggregato di TUTTI i fornitori
     const vendorTxs=selVendor
       ? base.filter(t=>t.uscita>0&&(t.vendor||(extractAndClassify(t.causale,t.descrizione,rulesGet()).vendor))===selVendor)
-      : base.filter(t=>t.uscita>0&&(showInvest||t.categoria!=="📈 Investimenti"));
+      : base.filter(t=>t.uscita>0&&(!excInvest||!NEUTRAL_CATS.includes(t.categoria)));
     if(selYear&&selMonth){
       // Vista giornaliera: giorni del mese selezionato
       const byDay={};
@@ -2281,7 +2280,7 @@ function VenditoriTab({allTxs,filteredTxs,selYear,selMonth,selYears,selMonths}){
       vendorTxs.forEach(t=>{byYm[t.ym]=(byYm[t.ym]||0)+t.uscita;});
       return Object.entries(byYm).sort().map(([ym,v])=>({label:fmtYm(ym),value:Math.round(v)}));
     }
-  },[allTxs,selVendor,catFilter,selYear,selMonth,showInvest]);
+  },[allTxs,selVendor,catFilter,selYear,selMonth,excInvest]);
   const vendorTotale=vendors.find(v=>v.name===selVendor);
   return(
     <div style={{display:"flex",flexDirection:"column",gap:16}}>
@@ -2289,12 +2288,9 @@ function VenditoriTab({allTxs,filteredTxs,selYear,selMonth,selYears,selMonths}){
       <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
         <span style={{fontSize:12,color:C.muted,fontWeight:600,marginRight:4}}>Categoria:</span>
         <Pill active={catFilter===""} onClick={()=>{setCatFilter("");setSelVendor(null);}}>Tutte</Pill>
-        {categories.filter(c=>showInvest||c!=="📈 Investimenti").map(c=>(
+        {categories.map(c=>(
           <Pill key={c} active={catFilter===c} onClick={()=>{setCatFilter(catFilter===c?"":c);setSelVendor(null);}}>{c}</Pill>
         ))}
-        <label style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",marginLeft:"auto",fontSize:11,color:C.muted,whiteSpace:"nowrap"}}>
-          <input type="checkbox" checked={showInvest} onChange={e=>setShowInvest(e.target.checked)}/> Mostra investimenti
-        </label>
       </div>
       <div className="grid2">
         {/* Top vendors bar */}
@@ -2307,12 +2303,12 @@ function VenditoriTab({allTxs,filteredTxs,selYear,selMonth,selYears,selMonths}){
               <XAxis type="number" tickFormatter={fmtK} tick={{fill:C.muted,fontSize:13}} tickLine={false}/>
               <YAxis type="category" dataKey="name" width={160} tick={{fill:C.text,fontSize:13,fontWeight:500}}/>
               <Tooltip formatter={v=>fmt(v)} contentStyle={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,fontSize:13}}/>
-              <Bar dataKey="total" name="Totale speso" radius={[0,4,4,0]} cursor="pointer"
-                label={{position:"right",formatter:v=>fmt(v),fontSize:12,fill:C.muted}}>
+              <Bar dataKey="total" name="Totale speso" radius={[0,4,4,0]} cursor="pointer">
                 {[...vendors].reverse().map((_,i)=>{
                   const nm=[...vendors].reverse()[i]?.name;
                   return<Cell key={i} fill={nm===selVendor?"#60a5fa":getCatColor(nm||"")} stroke="rgba(0,0,0,0.45)" strokeWidth={1} opacity={selVendor&&nm!==selVendor?0.4:1}/>;
                 })}
+                <LabelList dataKey="total" position="right" formatter={v=>fmt(v)} style={{fontSize:12,fill:C.muted}}/>
               </Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -2930,7 +2926,7 @@ const METODI_COLORS={
   "Giroconto":"#a5f3fc","Spese Bancarie":"#fca5a5","Stipendio":"#bbf7d0","Altro":"#cbd5e1"
 };
 
-function EntrateTab({txs, allTxs, selYear, selMonth}){
+function EntrateTab({txs, allTxs, excInvest, selYear, selMonth}){
   const [selCat,setSelCat]=useState(null);
   function toggleCat(name){setSelCat(prev=>prev===name?null:name);}
 
@@ -2943,18 +2939,18 @@ function EntrateTab({txs, allTxs, selYear, selMonth}){
   // Aggrega entrate per categoria
   const catData=useMemo(()=>{
     const map={};
-    txs.filter(t=>t.entrata>0&&!NEUTRAL_CATS.includes(t.categoria)).forEach(t=>{
+    txs.filter(t=>t.entrata>0&&(!excInvest||!NEUTRAL_CATS.includes(t.categoria))).forEach(t=>{
       const c=t.categoria;
       if(!map[c])map[c]={name:c,value:0,count:0};
       map[c].value+=t.entrata; map[c].count++;
     });
     return Object.values(map).sort((a,b)=>b.value-a.value);
-  },[txs]);
+  },[txs,excInvest]);
 
   // Trend mensile entrate totali
   const trendData=useMemo(()=>{
     const cat=selCat;
-    const filtered=txs.filter(t=>t.entrata>0&&!NEUTRAL_CATS.includes(t.categoria)&&(!cat||t.categoria===cat));
+    const filtered=txs.filter(t=>t.entrata>0&&(!excInvest||!NEUTRAL_CATS.includes(t.categoria))&&(!cat||t.categoria===cat));
     if(selYear&&selMonth){
       const byDay={};
       filtered.filter(t=>t.year===selYear&&t.month===selMonth).forEach(t=>{const d=+t.date.slice(8,10);byDay[d]=(byDay[d]||0)+t.entrata;});
@@ -2969,15 +2965,15 @@ function EntrateTab({txs, allTxs, selYear, selMonth}){
     const byYm={};
     filtered.forEach(t=>{byYm[t.ym]=(byYm[t.ym]||0)+t.entrata;});
     return Object.entries(byYm).sort().map(([ym,v])=>({label:fmtYm(ym),value:Math.round(v)}));
-  },[txs,selCat,selYear,selMonth]);
+  },[txs,selCat,selYear,selMonth,excInvest]);
 
   const totalE=catData.reduce((s,d)=>s+d.value,0);
   const avgMensile=useMemo(()=>{
     const byYm={};
-    txs.filter(t=>t.entrata>0&&!NEUTRAL_CATS.includes(t.categoria)).forEach(t=>{byYm[t.ym]=(byYm[t.ym]||0)+t.entrata;});
+    txs.filter(t=>t.entrata>0&&(!excInvest||!NEUTRAL_CATS.includes(t.categoria))).forEach(t=>{byYm[t.ym]=(byYm[t.ym]||0)+t.entrata;});
     const vals=Object.values(byYm);
     return vals.length?vals.reduce((s,v)=>s+v,0)/vals.length:0;
-  },[txs]);
+  },[txs,excInvest]);
 
   // Tabella entrate categoria selezionata
   const tableRows=useMemo(()=>{
@@ -2991,7 +2987,7 @@ function EntrateTab({txs, allTxs, selYear, selMonth}){
       <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
         <Card label="Entrate Totali" value={"+"+fmt(totalE)} sub="periodo selezionato" color="#bbf7d0" icon="↑"/>
         <Card label="Media Mensile" value={fmt(avgMensile)} sub="media su tutti i mesi" color="#bfdbfe" icon="📅"/>
-        <Card label="Operazioni" value={txs.filter(t=>t.entrata>0&&!NEUTRAL_CATS.includes(t.categoria)).length.toLocaleString()} sub="transazioni in entrata" color="#ddd6fe" icon="#"/>
+        <Card label="Operazioni" value={txs.filter(t=>t.entrata>0&&(!excInvest||!NEUTRAL_CATS.includes(t.categoria))).length.toLocaleString()} sub="transazioni in entrata" color="#ddd6fe" icon="#"/>
       </div>
 
       <div className="grid2">
@@ -3008,11 +3004,11 @@ function EntrateTab({txs, allTxs, selYear, selMonth}){
                 <Tooltip content={<Tip/>}/>
                 <Bar dataKey="value" name="Entrate" radius={[0,4,4,0]} cursor="pointer"
                   background={{fill:"transparent",stroke:"none",strokeWidth:0,cursor:"pointer",onClick:(data)=>data&&data.name&&toggleCat(data.name)}}
-                  onClick={(data)=>toggleCat(data.name)}
-                  label={{position:"right",formatter:v=>fmt(v),fontSize:11,fill:C.muted}}>
+                  onClick={(data)=>toggleCat(data.name)}>
                   {[...catData].reverse().map((d,i)=>(
                     <Cell key={i} fill={getCatColor(d.name)} stroke="rgba(0,0,0,0.45)" strokeWidth={1} opacity={selCat&&d.name!==selCat?0.3:1}/>
                   ))}
+                  <LabelList dataKey="value" position="right" formatter={v=>fmt(v)} style={{fontSize:11,fill:C.muted}}/>
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
@@ -3060,7 +3056,7 @@ function EntrateTab({txs, allTxs, selYear, selMonth}){
       {(()=>{
         const entrRows=selCat
           ?txs.filter(t=>t.entrata>0&&t.categoria===selCat&&!NEUTRAL_CATS.includes(t.categoria))
-          :txs.filter(t=>t.entrata>0&&!NEUTRAL_CATS.includes(t.categoria));
+          :txs.filter(t=>t.entrata>0&&(!excInvest||!NEUTRAL_CATS.includes(t.categoria)));
         if(!entrRows.length)return null;
         return <TransactionTable rows={entrRows}
           title={`📋 Entrate${selCat?": "+selCat:" — tutte"} (${entrRows.length} record)`}
@@ -3071,13 +3067,18 @@ function EntrateTab({txs, allTxs, selYear, selMonth}){
 }
 
 
-function MetodiTab({txs,selYear,selMonth}){
+function MetodiTab({txs,excInvest,selYear,selMonth}){
   const [selMetodo,setSelMetodo]=React.useState(null);
+  React.useEffect(()=>{
+    const h=e=>{if(e.key==="Escape")setSelMetodo(null);};
+    window.addEventListener("keydown",h);
+    return()=>window.removeEventListener("keydown",h);
+  },[]);
 
   // Aggrega per metodo
   const byMetodo=React.useMemo(()=>{
     const map={};
-    txs.forEach(t=>{
+    txs.filter(t=>!excInvest||!NEUTRAL_CATS.includes(t.categoria)).forEach(t=>{
       const m=t.metodo||detectMetodo(t.causale,t.descrizione);
       if(!map[m])map[m]={name:m,uscite:0,entrate:0,count:0};
       map[m].uscite+=t.uscita;
@@ -3085,11 +3086,11 @@ function MetodiTab({txs,selYear,selMonth}){
       map[m].count++;
     });
     return Object.values(map).sort((a,b)=>b.uscite-a.uscite);
-  },[txs]);
+  },[txs,excInvest]);
 
   // Andamento: metodo selezionato, oppure aggregato di TUTTI i metodi
   const trend=React.useMemo(()=>{
-    const rows=txs.filter(t=>t.uscita>0&&(selMetodo?(t.metodo||detectMetodo(t.causale,t.descrizione))===selMetodo:true));
+    const rows=txs.filter(t=>t.uscita>0&&(!excInvest||!NEUTRAL_CATS.includes(t.categoria))&&(selMetodo?(t.metodo||detectMetodo(t.causale,t.descrizione))===selMetodo:true));
     if(selYear&&selMonth){
       const byDay={};
       rows.filter(t=>t.year===selYear&&t.month===selMonth).forEach(t=>{byDay[t.date]=(byDay[t.date]||0)+t.uscita;});
@@ -3103,7 +3104,7 @@ function MetodiTab({txs,selYear,selMonth}){
       rows.forEach(t=>{byYm[t.ym]=(byYm[t.ym]||0)+t.uscita;});
       return Object.entries(byYm).sort().map(([ym,v])=>({label:fmtYm(ym),value:Math.round(v)}));
     }
-  },[txs,selMetodo,selYear,selMonth]);
+  },[txs,selMetodo,selYear,selMonth,excInvest]);
 
   const metodoTotale=byMetodo.find(m=>m.name===selMetodo);
   const aggTotal=trend.reduce((s,d)=>s+d.value,0);
@@ -3123,13 +3124,13 @@ function MetodiTab({txs,selYear,selMonth}){
               <Tooltip content={<Tip/>}/>
               <Bar dataKey="uscite" name="Uscite" radius={[0,4,4,0]} cursor="pointer"
                 background={{fill:"transparent",stroke:"none",strokeWidth:0,cursor:"pointer",onClick:(d)=>d&&d.name&&setSelMetodo(d.name===selMetodo?null:d.name)}}
-                onClick={(d)=>setSelMetodo(d.name===selMetodo?null:d.name)}
-                label={{position:"right",formatter:v=>fmt(v),fontSize:11,fill:C.muted}}>
+                onClick={(d)=>setSelMetodo(d.name===selMetodo?null:d.name)}>
                 {[...byMetodo].reverse().map((m,i)=>(
                   <Cell key={i} fill={METODI_COLORS[m.name]||PASTEL[i%PASTEL.length]}
                     stroke="rgba(0,0,0,0.45)" strokeWidth={1}
                     opacity={selMetodo&&m.name!==selMetodo?0.4:1}/>
                 ))}
+                <LabelList dataKey="uscite" position="right" formatter={v=>fmt(v)} style={{fontSize:11,fill:C.muted}}/>
               </Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -4173,9 +4174,9 @@ function App(){
               }
               if(url)settingsPush(url).then(()=>console.log("✅ Regole Sheets:",rulesGet().length));
             }}/>}
-            {tab==="venditori"&&<VenditoriTab allTxs={txs} filteredTxs={filteredTxs} selYear={selYear} selMonth={selMonth} selYears={selYears} selMonths={selMonths}/>}
-            {tab==="entrate"&&<EntrateTab txs={filteredTxs} allTxs={txs} selYear={selYear} selMonth={selMonth}/>}
-            {tab==="metodi"&&<MetodiTab txs={filteredTxs} selYear={selYear} selMonth={selMonth}/>}
+            {tab==="venditori"&&<VenditoriTab allTxs={txs} filteredTxs={filteredTxs} excInvest={excInvest} selYear={selYear} selMonth={selMonth} selYears={selYears} selMonths={selMonths}/>}
+            {tab==="entrate"&&<EntrateTab txs={filteredTxs} allTxs={txs} excInvest={excInvest} selYear={selYear} selMonth={selMonth}/>}
+            {tab==="metodi"&&<MetodiTab txs={filteredTxs} excInvest={excInvest} selYear={selYear} selMonth={selMonth}/>}
             {tab==="investimenti"&&<InvestimentiTab txs={filteredTxs} balanceSaldos={balanceSaldos}/>}
             {tab==="revisione"&&<RevisioneTab txs={filteredTxs} onRuleAdded={(skipReapply)=>{
               const rules=rulesGet();
