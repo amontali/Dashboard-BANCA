@@ -33,7 +33,7 @@
 <body><div id="root" style="height:100vh"></div>
 <script type="text/babel">
 const {useState,useEffect,useMemo}=React;
-const {BarChart,Bar,AreaChart,Area,LineChart,Line,PieChart,Pie,Cell,
+const {BarChart,Bar,AreaChart,Area,LineChart,Line,PieChart,Pie,Cell,LabelList,
        ComposedChart,XAxis,YAxis,CartesianGrid,Tooltip,Legend,ResponsiveContainer,ReferenceLine}=Recharts;
 
 // ── PALETTE pastel ────────────────────────────────────────────────────────────
@@ -414,12 +414,41 @@ function normalizeVendor(name,userRules){
   }
   return null;
 }
-const VERSION="v9.7.3 · 22 mag 2026";
+const VERSION="v9.8 · 23 mag 2026";
 
 // ── FORMATTERS ────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR",minimumFractionDigits:0,maximumFractionDigits:0,useGrouping:true}).format(n||0);
 const fmtK=n=>new Intl.NumberFormat('it-IT',{style:'currency',currency:'EUR',maximumFractionDigits:0}).format(n||0);
 const fmtKS=n=>new Intl.NumberFormat('it-IT',{style:'currency',currency:'EUR',maximumFractionDigits:0}).format(n||0);
+
+// ── ETICHETTE ADATTIVE SUI GRAFICI ───────────────────────────────────────────
+// Passo di visualizzazione in base al numero di voci (per non intasare grafici fitti)
+function labelStep(count){
+  if(count<=14)return 1;     // poche voci → tutte
+  if(count<=30)return 2;
+  return 12;                  // serie mensile lunga → ~1 all'anno (gennaio)
+}
+// Componente label custom per LINEE: mostra il valore sopra il punto, solo ogni `step`
+function makeLineLabel(count, fmtFn){
+  const step=labelStep(count);
+  return function(props){
+    const {x,y,value,index}=props;
+    if(value==null||x==null||y==null)return null;
+    if(index%step!==0)return null;
+    return <text x={x} y={y-8} textAnchor="middle" fontSize={10} fill="#64748b">{fmtFn(value)}</text>;
+  };
+}
+// Componente label custom per COLONNE verticali: valore sopra (o sotto se negativo), solo ogni `step`
+function makeBarLabel(count, fmtFn){
+  const step=labelStep(count);
+  return function(props){
+    const {x,y,width,value,index}=props;
+    if(value==null||x==null)return null;
+    if(index%step!==0)return null;
+    const neg=value<0;
+    return <text x={x+width/2} y={neg?y+14:y-5} textAnchor="middle" fontSize={10} fill="#64748b">{fmtFn(value)}</text>;
+  };
+}
 // "2015-01" → "Gen/15"
 const fmtYm=ym=>{try{const[y,m]=String(ym).split("-");return MONTHS_IT[parseInt(m,10)-1]+"/"+y.slice(2);}catch{return ym;}};
 // Normalizza date da Google Sheets (potrebbero arrivare come Date object o stringa diversa)
@@ -1109,13 +1138,12 @@ function WaterfallChart({txs, excInvest}){
     const {x,y,width,height,payload}=props;
     if(!payload)return null;
     const fill=payload.positive?"#6ee7b7":"#fca5a5";
-    const stroke=payload.positive?"rgba(0,80,40,0.2)":"rgba(120,0,0,0.2)";
     return(
       <g>
         <rect x={x} y={y} width={width} height={Math.abs(height)||1}
-          fill={fill} stroke={stroke} strokeWidth={0.5} rx={2}/>
-        <text x={x+width/2} y={payload.positive?y-4:y+Math.abs(height)+12}
-          textAnchor="middle" fill="#475569" fontSize={10} fontWeight={600}>
+          fill={fill} stroke="rgba(0,0,0,0.45)" strokeWidth={1} rx={2}/>
+        <text x={x+width/2} y={payload.positive?y-5:y+Math.abs(height)+13}
+          textAnchor="middle" fill="#475569" fontSize={11}>
           {payload.positive?"+":""}{fmtK(payload.delta)}
         </text>
       </g>
@@ -1224,7 +1252,7 @@ function PanoramicaTab({allTxs,filteredTxs,selYears,selYear,selMonth,excInvest,b
         </Box>
         <Box title={selYears.length>1?`Saldo — ${selYears.join(", ")}`:selYear?(selMonth?`Saldo — ${MONTHS_IT[selMonth-1]} ${selYear}`:`Saldo mensile — ${selYear}`):"Saldo Netto per Anno"} minH={300}>
           <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={selYears.length>0?agg.monthly:agg.yearly}>
+            <BarChart data={selYears.length>0?agg.monthly:agg.yearly} margin={{top:18,right:10,left:10,bottom:5}}>
               <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
               <XAxis dataKey={selYears.length>0?"label":"year"} tick={{fill:C.muted,fontSize:11}}/>
               <YAxis tickFormatter={fmtK} tick={{fill:C.muted,fontSize:10}}/>
@@ -1232,14 +1260,22 @@ function PanoramicaTab({allTxs,filteredTxs,selYears,selYear,selMonth,excInvest,b
               <ReferenceLine y={0} stroke="#94a3b8"/>
               <Bar dataKey="saldo" name="Saldo" radius={[3,3,0,0]}>
                 {(selYears.length>0?agg.monthly:agg.yearly).map((d,i)=><Cell key={i} fill={d.saldo>=0?"#6ee7b7":"#fca5a5"} stroke="rgba(0,0,0,0.45)" strokeWidth={1}/>)}
+                <LabelList dataKey="saldo" content={makeBarLabel((selYears.length>0?agg.monthly:agg.yearly).length, fmtK)}/>
               </Bar>
             </BarChart>
           </ResponsiveContainer>
         </Box>
       </div>
       {/* Waterfall — mostrato solo in vista multi-anno o tutto */}
-      {selYears.length===0&&(
+      {selYears.length===0?(
         <WaterfallChart txs={displayTxs} excInvest={excInvest}/>
+      ):(
+        <Box title="💧 Waterfall — Evoluzione saldo cumulativo per anno">
+          <div style={{padding:"24px 16px",textAlign:"center",color:C.muted,fontSize:13,lineHeight:1.6}}>
+            Il waterfall mostra l'evoluzione del saldo <strong>anno per anno</strong>.<br/>
+            Deseleziona l'anno (torna a <strong>tutti gli anni</strong>) per visualizzarlo.
+          </div>
+        </Box>
       )}
     </div>
   );
@@ -1262,14 +1298,16 @@ function MensileTab({txs,excInvest}){
             <YAxis tickFormatter={fmtK} tick={{fill:C.muted,fontSize:10}}/>
             <Tooltip content={<Tip/>}/>
             <Legend wrapperStyle={{fontSize:12}}/>
-            <Area type="monotone" dataKey="entrate" name="Entrate" stroke="#6ee7b7" fill="url(#gE)" strokeWidth={2} dot={false}/>
+            <Area type="monotone" dataKey="entrate" name="Entrate" stroke="#6ee7b7" fill="url(#gE)" strokeWidth={2} dot={false}>
+              <LabelList dataKey="entrate" content={makeLineLabel(agg.monthly.length, fmtK)}/>
+            </Area>
             <Area type="monotone" dataKey="uscite" name="Uscite" stroke="#fca5a5" fill="url(#gU)" strokeWidth={2} dot={false}/>
           </AreaChart>
         </ResponsiveContainer>
       </Box>
       <Box title="Saldo mensile">
         <ResponsiveContainer width="100%" height={200}>
-          <BarChart data={agg.monthly}>
+          <BarChart data={agg.monthly} margin={{top:18,right:10,left:10,bottom:5}}>
             <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
             <XAxis dataKey="label" tick={{fill:C.muted,fontSize:10}} interval={agg.monthly.length>24?3:0}/>
             <YAxis tickFormatter={fmtK} tick={{fill:C.muted,fontSize:10}}/>
@@ -1277,6 +1315,7 @@ function MensileTab({txs,excInvest}){
             <ReferenceLine y={0} stroke="#94a3b8"/>
             <Bar dataKey="saldo" name="Saldo" radius={[2,2,0,0]}>
               {agg.monthly.map((d,i)=><Cell key={i} fill={d.saldo>=0?"#6ee7b7":"#fca5a5"} stroke="rgba(0,0,0,0.45)" strokeWidth={1}/>)}
+              <LabelList dataKey="saldo" content={makeBarLabel(agg.monthly.length, fmtK)}/>
             </Bar>
           </BarChart>
         </ResponsiveContainer>
@@ -1883,7 +1922,7 @@ function CategorieTab({txs,excInvest,selYear,selMonth,selYears,selMonths,onRuleA
                 onClick={(data,_,e)=>toggleCat(data.name,(e?.ctrlKey||e?.metaKey))}
                 label={({x,y,width,height,value})=>(
                     <text x={x+width+6} y={y+height/2} dy="0.35em"
-                      fill="#475569" fontSize={11} fontWeight={600} textAnchor="start"
+                      fill="#475569" fontSize={11} textAnchor="start"
                       style={{pointerEvents:"none"}}>
                       {fmt(value)}
                     </text>
@@ -1972,7 +2011,9 @@ function CategorieTab({txs,excInvest,selYear,selMonth,selYears,selMonths,onRuleA
                 <Area type="monotone" dataKey="value" name={selCat}
                   stroke="#60a5fa" fill="url(#gCat)" strokeWidth={2.5}
                   dot={timeSeries.length<=31?{fill:"#60a5fa",r:3}:false}
-                  activeDot={{r:5}}/>
+                  activeDot={{r:5}}>
+                  <LabelList dataKey="value" content={makeLineLabel(timeSeries.length, fmtK)}/>
+                </Area>
               </AreaChart>
             </ResponsiveContainer>
           )
@@ -2155,21 +2196,25 @@ function VenditoriTab({allTxs,filteredTxs,selYear,selMonth,selYears,selMonths}){
               )}
               <ResponsiveContainer width="100%" height={280}>
                 {selYear&&selMonth?(
-                  <AreaChart data={vendorTrend}>
+                  <AreaChart data={vendorTrend} margin={{top:18,right:20,left:10,bottom:5}}>
                     <defs><linearGradient id="gV" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#60a5fa" stopOpacity={0.3}/><stop offset="95%" stopColor="#60a5fa" stopOpacity={0}/></linearGradient></defs>
                     <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
                     <XAxis dataKey="label" tick={{fill:C.muted,fontSize:12}} interval={0}/>
-                    <YAxis tickFormatter={fmtK} tick={{fill:C.muted,fontSize:12}}/>
+                    <YAxis tickFormatter={fmtK} tick={{fill:C.muted,fontSize:12}} domain={[0,dm=>Math.ceil((dm||0)*1.15)]}/>
                     <Tooltip content={<Tip/>}/>
-                    <Area type="monotone" dataKey="value" name="Speso" stroke="#60a5fa" fill="url(#gV)" strokeWidth={2.5} dot={{fill:"#60a5fa",r:3}} activeDot={{r:5}}/>
+                    <Area type="monotone" dataKey="value" name="Speso" stroke="#60a5fa" fill="url(#gV)" strokeWidth={2.5} dot={{fill:"#60a5fa",r:3}} activeDot={{r:5}}>
+                      <LabelList dataKey="value" content={makeLineLabel(vendorTrend.length, fmtK)}/>
+                    </Area>
                   </AreaChart>
                 ):(
-                  <BarChart data={vendorTrend}>
+                  <BarChart data={vendorTrend} margin={{top:18,right:10,left:10,bottom:5}}>
                     <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
                     <XAxis dataKey="label" tick={{fill:C.muted,fontSize:12}} interval={vendorTrend.length>12?2:0}/>
-                    <YAxis tickFormatter={fmtK} tick={{fill:C.muted,fontSize:12}}/>
+                    <YAxis tickFormatter={fmtK} tick={{fill:C.muted,fontSize:12}} domain={[0,dm=>Math.ceil((dm||0)*1.15)]}/>
                     <Tooltip content={<Tip/>}/>
-                    <Bar dataKey="value" name="Speso" fill="#93c5fd" radius={[3,3,0,0]} label={{position:"top",formatter:v=>v>0?fmtK(v):"",fontSize:11,fill:C.muted}}/>
+                    <Bar dataKey="value" name="Speso" fill="#93c5fd" stroke="rgba(0,0,0,0.45)" strokeWidth={1} radius={[3,3,0,0]}>
+                      <LabelList dataKey="value" content={makeBarLabel(vendorTrend.length, fmtK)}/>
+                    </Bar>
                   </BarChart>
                 )}
               </ResponsiveContainer>
@@ -2236,14 +2281,18 @@ function InvestimentiTab({txs, balanceSaldos}){
       </div>
       <Box title="Acquisti vs Vendite per Anno">
         <ResponsiveContainer width="100%" height={260}>
-          <BarChart data={pnl.byYear}>
+          <BarChart data={pnl.byYear} margin={{top:18,right:10,left:10,bottom:5}}>
             <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
             <XAxis dataKey="year" tick={{fill:C.muted,fontSize:11}}/>
-            <YAxis tickFormatter={fmtK} tick={{fill:C.muted,fontSize:10}}/>
+            <YAxis tickFormatter={fmtK} tick={{fill:C.muted,fontSize:10}} domain={[0,dm=>Math.ceil((dm||0)*1.15)]}/>
             <Tooltip content={<Tip/>}/>
             <Legend wrapperStyle={{fontSize:12}}/>
-            <Bar dataKey="acquisti" name="Acquisti" fill="#fca5a5" stroke="rgba(0,0,0,0.45)" strokeWidth={1} radius={[3,3,0,0]}/>
-            <Bar dataKey="vendite"  name="Vendite"  fill="#6ee7b7" stroke="rgba(0,0,0,0.45)" strokeWidth={1} radius={[3,3,0,0]}/>
+            <Bar dataKey="acquisti" name="Acquisti" fill="#fca5a5" stroke="rgba(0,0,0,0.45)" strokeWidth={1} radius={[3,3,0,0]}>
+              <LabelList dataKey="acquisti" content={makeBarLabel(pnl.byYear.length, fmtK)}/>
+            </Bar>
+            <Bar dataKey="vendite"  name="Vendite"  fill="#6ee7b7" stroke="rgba(0,0,0,0.45)" strokeWidth={1} radius={[3,3,0,0]}>
+              <LabelList dataKey="vendite" content={makeBarLabel(pnl.byYear.length, fmtK)}/>
+            </Bar>
           </BarChart>
         </ResponsiveContainer>
       </Box>
@@ -2850,9 +2899,11 @@ function EntrateTab({txs, allTxs, selYear, selMonth}){
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
               <XAxis dataKey="label" tick={{fill:C.muted,fontSize:10}} interval={trendData.length>24?2:0}/>
-              <YAxis tickFormatter={fmtK} tick={{fill:C.muted,fontSize:10}}/>
+              <YAxis tickFormatter={fmtK} tick={{fill:C.muted,fontSize:10}} domain={[0,dm=>Math.ceil((dm||0)*1.15)]}/>
               <Tooltip content={<Tip/>}/>
-              <Area type="monotone" dataKey="value" name={selCat||"Entrate"} stroke="#6ee7b7" fill="url(#gEntrate)" strokeWidth={2.5} dot={false} activeDot={{r:5}}/>
+              <Area type="monotone" dataKey="value" name={selCat||"Entrate"} stroke="#6ee7b7" fill="url(#gEntrate)" strokeWidth={2.5} dot={false} activeDot={{r:5}}>
+                <LabelList dataKey="value" content={makeLineLabel(trendData.length, fmtK)}/>
+              </Area>
             </AreaChart>
           </ResponsiveContainer>
           {selCat&&<div style={{textAlign:"center",marginTop:8}}>
@@ -2949,23 +3000,29 @@ function MetodiTab({txs,selYear,selMonth}){
         </ResponsiveContainer>
       </div>
 
-      {/* Trend metodo selezionato */}
-      {selMetodo&&trend.length>0&&(
-        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:16}}>
-          <h3 style={{margin:"0 0 12px",fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:1.2}}>
-            📅 Andamento: {selMetodo}
-          </h3>
+      {/* Trend metodo selezionato — sempre presente (vuoto se nessuna selezione) */}
+      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:16}}>
+        <h3 style={{margin:"0 0 12px",fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:1.2}}>
+          📅 Andamento: {selMetodo||"— seleziona un metodo per vedere il dettaglio mensile"}
+        </h3>
+        {selMetodo&&trend.length>0?(
           <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={trend}>
+            <BarChart data={trend} margin={{top:18,right:10,left:10,bottom:5}}>
               <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
               <XAxis dataKey="label" tick={{fill:C.muted,fontSize:10}} interval={trend.length>24?3:0}/>
-              <YAxis tickFormatter={fmtK} tick={{fill:C.muted,fontSize:10}}/>
+              <YAxis tickFormatter={fmtK} tick={{fill:C.muted,fontSize:10}} domain={[0,dm=>Math.ceil((dm||0)*1.15)]}/>
               <Tooltip content={<Tip/>}/>
-              <Bar dataKey="value" name={selMetodo} fill={METODI_COLORS[selMetodo]||"#93c5fd"} radius={[3,3,0,0]}/>
+              <Bar dataKey="value" name={selMetodo} fill={METODI_COLORS[selMetodo]||"#93c5fd"} stroke="rgba(0,0,0,0.45)" strokeWidth={1} radius={[3,3,0,0]}>
+                <LabelList dataKey="value" content={makeBarLabel(trend.length, fmtK)}/>
+              </Bar>
             </BarChart>
           </ResponsiveContainer>
-        </div>
-      )}
+        ):(
+          <div style={{height:220,display:"flex",alignItems:"center",justifyContent:"center",color:C.faint,fontSize:13,fontStyle:"italic",border:`1px dashed ${C.border}`,borderRadius:8}}>
+            Clicca una barra qui sopra per vedere l'andamento mensile del metodo
+          </div>
+        )}
+      </div>
 
       {/* Lista transazioni */}
       {(()=>{
